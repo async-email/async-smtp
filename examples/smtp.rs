@@ -17,7 +17,7 @@ fn main() {
         let mut mailer = SmtpClient::new_unencrypted_localhost()
             .await
             .unwrap()
-            .transport();
+            .into_transport();
         // Send the email
         let result = mailer.send(email).await;
 

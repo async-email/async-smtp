@@ -15,10 +15,10 @@ mod test {
             "Hello ß☺ example",
         );
 
-        SmtpClient::new("127.0.0.1:2525", ClientSecurity::None)
+        SmtpClient::with_security("127.0.0.1:2525", ClientSecurity::None)
             .await
             .unwrap()
-            .transport()
+            .into_transport()
             .send(email)
             .await
             .unwrap();

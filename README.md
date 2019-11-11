@@ -50,7 +50,7 @@
 
 ```rust
 use async_smtp::{
-    ClientSecurity, EmailAddress, Envelope, SendableEmail, SmtpClient, Transport,
+    ClientSecurity, Envelope, SendableEmail, SmtpClient, Transport,
 };
 
 async fn smtp_transport_simple() -> Result<()> {
@@ -63,11 +63,11 @@ async fn smtp_transport_simple() -> Result<()> {
         "Hello world",
     );
 
-    // Create a client and connect
-    let client = SmtpClient::new("127.0.0.1:2525", ClientSecurity::None).await?;
+    // Create a client
+    let smtp = SmtpClient::new("127.0.0.1:2525").await?.into_transport();
 
-    // Send the email
-    client.transport().send(email).await?;
+    // Connect and send the email.
+    smtp.send(email).await?;
 
     Ok(())
 }

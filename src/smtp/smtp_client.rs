@@ -92,7 +92,7 @@ impl SmtpClient {
     /// * A 60 seconds timeout for smtp commands
     ///
     /// Consider using [`SmtpClient::new_simple`] instead, if possible.
-    pub async fn new<A: ToSocketAddrs>(
+    pub async fn with_security<A: ToSocketAddrs>(
         addr: A,
         security: ClientSecurity,
     ) -> Result<SmtpClient, Error> {
@@ -117,7 +117,7 @@ impl SmtpClient {
     /// Simple and secure transport, should be used when possible.
     /// Creates an encrypted transport over submissions port, using the provided domain
     /// to validate TLS certificates.
-    pub async fn new_simple(domain: &str) -> Result<SmtpClient, Error> {
+    pub async fn new(domain: &str) -> Result<SmtpClient, Error> {
         let mut config = rustls::ClientConfig::new();
         config
             .root_store
@@ -125,7 +125,7 @@ impl SmtpClient {
 
         let tls_parameters = ClientTlsParameters::new(domain.to_string(), config);
 
-        SmtpClient::new(
+        SmtpClient::with_security(
             (domain, SUBMISSIONS_PORT),
             ClientSecurity::Wrapper(tls_parameters),
         )
@@ -134,7 +134,7 @@ impl SmtpClient {
 
     /// Creates a new local SMTP client to port 25
     pub async fn new_unencrypted_localhost() -> Result<SmtpClient, Error> {
-        SmtpClient::new(("localhost", SMTP_PORT), ClientSecurity::None).await
+        SmtpClient::with_security(("localhost", SMTP_PORT), ClientSecurity::None).await
     }
 
     /// Enable SMTPUTF8 if the server supports it
@@ -182,7 +182,7 @@ impl SmtpClient {
     /// Build the SMTP client
     ///
     /// It does not connect to the server, but only creates the `SmtpTransport`
-    pub fn transport(self) -> SmtpTransport {
+    pub fn into_transport(self) -> SmtpTransport {
         SmtpTransport::new(self)
     }
 }
