@@ -5,9 +5,11 @@ use async_smtp::{
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
 fn bench_simple_send(c: &mut Criterion) {
-    let mut sender = SmtpClient::new("127.0.0.1:2525", ClientSecurity::None)
-        .unwrap()
-        .transport();
+    let mut sender = async_std::task::block_on(async move {
+        SmtpClient::with_security("127.0.0.1:2525", ClientSecurity::None).await
+    })
+    .unwrap()
+    .into_transport();
 
     c.bench_function("send email", move |b| {
         b.iter(|| {
@@ -29,10 +31,12 @@ fn bench_simple_send(c: &mut Criterion) {
 }
 
 fn bench_reuse_send(c: &mut Criterion) {
-    let mut sender = SmtpClient::new("127.0.0.1:2525", ClientSecurity::None)
-        .unwrap()
-        .connection_reuse(ConnectionReuseParameters::ReuseUnlimited)
-        .transport();
+    let mut sender = async_std::task::block_on(async move {
+        SmtpClient::with_security("127.0.0.1:2525", ClientSecurity::None).await
+    })
+    .unwrap()
+    .connection_reuse(ConnectionReuseParameters::ReuseUnlimited)
+    .into_transport();
     c.bench_function("send email with connection reuse", move |b| {
         b.iter(|| {
             let email = SendableEmail::new(
