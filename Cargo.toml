@@ -1,7 +1,7 @@
 [package]
 
 name = "async-smtp"
-version = "0.1.0"
+version = "0.0.1"
 description = "SMTP client"
 readme = "README.md"
 homepage = "https://github.com/async-email/async-smtp"
@@ -22,23 +22,23 @@ log = "^0.4"
 nom = { version = "^5.0", optional = true }
 bufstream = { version = "^0.1", optional = true }
 rustls = { version = "^0.16", optional = true }
-base64 = { version = "^0.10", optional = true }
-hostname = { version = "^0.1", optional = true }
+base64 = { version = "^0.11", optional = true }
+hostname = { version = "^0.2", optional = true }
 serde = { version = "^1.0", optional = true }
 serde_json = { version = "^1.0", optional = true }
 serde_derive = { version = "^1.0", optional = true }
 fast_chemail = "^0.9"
 webpki-roots = "0.18.0"
 rustls-connector = "0.8.1"
-async-tls = { git = "https://github.com/async-rs/async-tls", branch = "refs" }
-async-std = { git = "https://github.com/async-rs/async-std", features = ["unstable"] }
+async-tls = "0.6"
+async-std = { version = "1.0", features = ["unstable"] }
 async-trait = "0.1.17"
 snafu = "0.6.0"
 pin-project = "0.4.5"
 pin-utils = "0.1.0-alpha.4"
 
 [dev-dependencies]
-env_logger = "^0.6"
+env_logger = "^0.7"
 glob = "^0.3"
 criterion = "^0.3"
 async-attributes = "1.1.1"

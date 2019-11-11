@@ -4,7 +4,7 @@ use crate::smtp::authentication::Mechanism;
 use crate::smtp::error::Error;
 use crate::smtp::response::Response;
 use crate::smtp::util::XText;
-use hostname::get_hostname;
+use hostname::get as get_hostname;
 use std::collections::HashSet;
 use std::fmt::{self, Display, Formatter};
 use std::net::{Ipv4Addr, Ipv6Addr};
@@ -47,7 +47,14 @@ impl ClientId {
     /// Defines a `ClientId` with the current hostname, of `localhost` if hostname could not be
     /// found
     pub fn hostname() -> ClientId {
-        ClientId::Domain(get_hostname().unwrap_or_else(|| DEFAULT_DOMAIN_CLIENT_ID.to_string()))
+        ClientId::Domain(
+            get_hostname()
+                .map(|s| {
+                    s.into_string()
+                        .unwrap_or_else(|_| DEFAULT_DOMAIN_CLIENT_ID.to_string())
+                })
+                .unwrap_or_else(|_| DEFAULT_DOMAIN_CLIENT_ID.to_string()),
+        )
     }
 }
 
