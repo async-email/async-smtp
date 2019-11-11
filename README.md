@@ -46,6 +46,32 @@
 
 > Based on the great [lettre](https://crates.io/crates/lettre) library.
 
+## Example
+
+```rust
+use async_smtp::{
+    ClientSecurity, EmailAddress, Envelope, SendableEmail, SmtpClient, Transport,
+};
+
+async fn smtp_transport_simple() -> Result<()> {
+    let email = SendableEmail::new(
+        Envelope::new(
+            Some(EmailAddress::new("user@localhost".to_string()).unwrap()),
+            vec![EmailAddress::new("root@localhost".to_string()).unwrap()],
+        )?,
+        "id".to_string(),
+        "Hello world".to_string().into_bytes(),
+    );
+
+    // Create a client and connect
+    let client = SmtpClient::new("127.0.0.1:2525", ClientSecurity::None).await?;
+
+    // Send the email
+    client.transport().send(email).await?;
+
+    Ok(())
+}
+```
 
 ## License
 
