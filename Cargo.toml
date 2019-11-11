@@ -4,8 +4,8 @@ name = "async-smtp"
 version = "0.1.0"
 description = "SMTP client"
 readme = "README.md"
-homepage = "https://github.com/dignifiedquire/async-smtp"
-repository = "https://github.com/dignifiedquire/async-smtp"
+homepage = "https://github.com/async-email/async-smtp"
+repository = "https://github.com/async-email/async-smtp"
 license = "Apache-2.0/MIT"
 authors = ["dignifiedquire <me@dignifiedquire.com>"]
 categories = ["email"]
@@ -14,8 +14,8 @@ edition = "2018"
 
 [badges]
 maintenance = { status = "actively-developed" }
-is-it-maintained-issue-resolution = { repository = "dignifiedquire/async-smtp" }
-is-it-maintained-open-issues = { repository = "dignifiedquire/async-smtp" }
+is-it-maintained-issue-resolution = { repository = "async-email/async-smtp" }
+is-it-maintained-open-issues = { repository = "async-email/async-smtp" }
 
 [dependencies]
 log = "^0.4"

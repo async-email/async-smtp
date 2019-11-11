@@ -31,7 +31,7 @@
       API Docs
     </a>
     <span> | </span>
-    <a href="https://github.com/dignifiedquire/async-smtp/releases">
+    <a href="https://github.com/async-email/async-smtp/releases">
       Releases
     </a>
   </h3>
