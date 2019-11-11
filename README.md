@@ -56,11 +56,11 @@ use async_smtp::{
 async fn smtp_transport_simple() -> Result<()> {
     let email = SendableEmail::new(
         Envelope::new(
-            Some(EmailAddress::new("user@localhost".to_string()).unwrap()),
-            vec![EmailAddress::new("root@localhost".to_string()).unwrap()],
+            Some("user@localhost".parse().unwrap()),
+            vec!["root@localhost".parse().unwrap()],
         )?,
-        "id".to_string(),
-        "Hello world".to_string().into_bytes(),
+        "id",
+        "Hello world",
     );
 
     // Create a client and connect
