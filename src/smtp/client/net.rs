@@ -197,7 +197,7 @@ impl Connector for NetworkStream {
             Some(context) => {
                 let connector: TlsConnector = Arc::new(context.connector.clone()).into();
                 connector
-                    .connect(&context.domain, tcp_stream)?
+                    .connect(&context.domain, tcp_stream)
                     .await
                     .map(NetworkStream::Tls)
                     .map_err(|e| io::Error::new(ErrorKind::Other, e))
@@ -210,10 +210,8 @@ impl Connector for NetworkStream {
         match self {
             NetworkStream::Tcp(stream) => {
                 let connector: TlsConnector = Arc::new(tls_parameters.connector.clone()).into();
-                match connector.connect(&tls_parameters.domain, stream) {
-                    Ok(tls_stream) => Ok(NetworkStream::Tls(tls_stream.await?)),
-                    Err(err) => return Err(io::Error::new(ErrorKind::Other, err)),
-                }
+                let tls_stream = connector.connect(&tls_parameters.domain, stream);
+                Ok(NetworkStream::Tls(tls_stream.await?))
             }
             _ => Ok(self),
         }

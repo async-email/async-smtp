@@ -21,16 +21,21 @@ is-it-maintained-open-issues = { repository = "async-email/async-smtp" }
 log = "^0.4"
 nom = { version = "^5.0", optional = true }
 bufstream = { version = "^0.1", optional = true }
-rustls = { version = "^0.16", optional = true }
+# rustls-connector = "0.8.1"
+rustls-connector = { git = 'https://github.com/deltachat/rustls-connector' }
+# rustls = { version = "0.16.0", features = ["dangerous_configuration"] }
+rustls = { git = 'https://github.com/deltachat/rustls', optional = true, features = ["dangerous_configuration"] }
+# rustls = { version = "^0.16", optional = true }
 base64 = { version = "^0.11", optional = true }
 hostname = { version = "0.1.5", optional = true }
 serde = { version = "^1.0", optional = true }
 serde_json = { version = "^1.0", optional = true }
 serde_derive = { version = "^1.0", optional = true }
 fast_chemail = "^0.9"
-webpki-roots = "0.18.0"
-rustls-connector = "0.8.1"
-async-tls = "0.6"
+#webpki-roots = "0.18.0"
+webpki-roots = { git = 'https://github.com/deltachat/webpki-roots' }
+#async-tls = "0.6"
+async-tls = { git = 'https://github.com/deltachat/async-tls' }
 async-std = { version = "1.0", features = ["unstable"] }
 async-trait = "0.1.17"
 snafu = "0.6.0"
