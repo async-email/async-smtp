@@ -3,15 +3,13 @@
 use std::fmt;
 use std::time::Duration;
 
+use async_native_tls::{TlsConnector, TlsStream};
 use async_std::io::{self, ErrorKind, Read, Write};
 use async_std::net::{Ipv4Addr, Shutdown, SocketAddr, SocketAddrV4, TcpStream};
 use async_std::pin::Pin;
-use async_std::sync::Arc;
 use async_std::task::{Context, Poll};
-use async_tls::{client::TlsStream, TlsConnector};
 use async_trait::async_trait;
 use pin_project::{pin_project, project};
-use rustls::{ClientConfig, ProtocolVersion};
 
 use crate::smtp::client::mock::MockStream;
 
@@ -19,7 +17,7 @@ use crate::smtp::client::mock::MockStream;
 #[derive(Clone)]
 pub struct ClientTlsParameters {
     /// A connector from `native-tls`
-    pub connector: ClientConfig,
+    pub connector: TlsConnector,
     /// The domain to send during the TLS handshake
     pub domain: String,
 }
@@ -35,14 +33,10 @@ impl fmt::Debug for ClientTlsParameters {
 
 impl ClientTlsParameters {
     /// Creates a `ClientTlsParameters`
-    pub fn new(domain: String, connector: ClientConfig) -> ClientTlsParameters {
+    pub fn new(domain: String, connector: TlsConnector) -> ClientTlsParameters {
         ClientTlsParameters { connector, domain }
     }
 }
-
-/// Accepted protocols by default.
-/// This removes TLS 1.0 and 1.1 compared to tls-native defaults.
-pub const DEFAULT_TLS_MIN_PROTOCOL: ProtocolVersion = ProtocolVersion::TLSv1_2;
 
 /// Represents the different types of underlying network streams
 #[pin_project]
@@ -195,9 +189,9 @@ impl Connector for NetworkStream {
 
         match tls_parameters {
             Some(context) => {
-                let connector: TlsConnector = Arc::new(context.connector.clone()).into();
+                let connector: TlsConnector = context.connector.clone();
                 connector
-                    .connect(&context.domain, tcp_stream)?
+                    .connect(&context.domain, tcp_stream)
                     .await
                     .map(NetworkStream::Tls)
                     .map_err(|e| io::Error::new(ErrorKind::Other, e))
@@ -209,9 +203,9 @@ impl Connector for NetworkStream {
     async fn upgrade_tls(self, tls_parameters: &ClientTlsParameters) -> io::Result<Self> {
         match self {
             NetworkStream::Tcp(stream) => {
-                let connector: TlsConnector = Arc::new(tls_parameters.connector.clone()).into();
-                match connector.connect(&tls_parameters.domain, stream) {
-                    Ok(tls_stream) => Ok(NetworkStream::Tls(tls_stream.await?)),
+                let connector: TlsConnector = tls_parameters.connector.clone();
+                match connector.connect(&tls_parameters.domain, stream).await {
+                    Ok(tls_stream) => Ok(NetworkStream::Tls(tls_stream)),
                     Err(err) => return Err(io::Error::new(ErrorKind::Other, err)),
                 }
             }
