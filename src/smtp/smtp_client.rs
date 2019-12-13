@@ -4,6 +4,7 @@ use async_std::net::{SocketAddr, ToSocketAddrs};
 use async_std::pin::Pin;
 use async_trait::async_trait;
 use log::{debug, info};
+use native_tls::TlsConnector;
 use pin_project::pin_project;
 
 use crate::smtp::authentication::{
@@ -118,12 +119,9 @@ impl SmtpClient {
     /// Creates an encrypted transport over submissions port, using the provided domain
     /// to validate TLS certificates.
     pub async fn new(domain: &str) -> Result<SmtpClient, Error> {
-        let mut config = rustls::ClientConfig::new();
-        config
-            .root_store
-            .add_server_trust_anchors(&webpki_roots::TLS_SERVER_ROOTS);
+        let tls = TlsConnector::new()?.into();
 
-        let tls_parameters = ClientTlsParameters::new(domain.to_string(), config);
+        let tls_parameters = ClientTlsParameters::new(domain.to_string(), tls);
 
         SmtpClient::with_security(
             (domain, SUBMISSIONS_PORT),
