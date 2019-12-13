@@ -52,6 +52,7 @@ serde-impls = ["serde", "serde_derive"]
 file-transport = ["serde-impls", "serde_json"]
 smtp-transport = ["bufstream", "base64", "nom", "hostname"]
 sendmail-transport = []
+native-tls-vendored = ["async-native-tls/vendored", "native-tls/vendored"]
 
 [[example]]
 name = "smtp"

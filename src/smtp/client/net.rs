@@ -188,14 +188,12 @@ impl Connector for NetworkStream {
         };
 
         match tls_parameters {
-            Some(context) => {
-                let connector: TlsConnector = context.connector.clone();
-                connector
-                    .connect(&context.domain, tcp_stream)
-                    .await
-                    .map(NetworkStream::Tls)
-                    .map_err(|e| io::Error::new(ErrorKind::Other, e))
-            }
+            Some(context) => context
+                .connector
+                .connect(&context.domain, tcp_stream)
+                .await
+                .map(NetworkStream::Tls)
+                .map_err(|e| io::Error::new(ErrorKind::Other, e)),
             None => Ok(NetworkStream::Tcp(tcp_stream)),
         }
     }
@@ -203,11 +201,12 @@ impl Connector for NetworkStream {
     async fn upgrade_tls(self, tls_parameters: &ClientTlsParameters) -> io::Result<Self> {
         match self {
             NetworkStream::Tcp(stream) => {
-                let connector: TlsConnector = tls_parameters.connector.clone();
-                match connector.connect(&tls_parameters.domain, stream).await {
-                    Ok(tls_stream) => Ok(NetworkStream::Tls(tls_stream)),
-                    Err(err) => return Err(io::Error::new(ErrorKind::Other, err)),
-                }
+                let tls_stream = tls_parameters
+                    .connector
+                    .connect(&tls_parameters.domain, stream)
+                    .await
+                    .map_err(|err| io::Error::new(ErrorKind::Other, err))?;
+                Ok(NetworkStream::Tls(tls_stream))
             }
             _ => Ok(self),
         }
