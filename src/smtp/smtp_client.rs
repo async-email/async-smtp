@@ -254,6 +254,11 @@ impl<'a> SmtpTransport {
         }
     }
 
+    /// Returns true if there is currently an established connection.
+    pub fn is_connected(&self) -> bool {
+        self.client.is_connected()
+    }
+
     /// Try to connect, if not already connected.
     pub async fn connect(&mut self) -> Result<(), Error> {
         // Check if the connection is still available

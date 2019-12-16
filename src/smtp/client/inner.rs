@@ -132,8 +132,7 @@ impl<S: Connector + Write + Read + Unpin> InnerClient<S> {
     }
 
     /// Checks if the underlying server socket is connected
-    #[cfg_attr(feature = "cargo-clippy", allow(clippy::wrong_self_convention))]
-    pub fn is_connected(&mut self) -> bool {
+    pub fn is_connected(&self) -> bool {
         self.stream.is_some()
     }
 
