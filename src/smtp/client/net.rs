@@ -229,35 +229,3 @@ impl Connector for NetworkStream {
         }
     }
 }
-
-/// A trait for read and write timeout support
-pub trait Timeout: Sized {
-    /// Set read timeout for IO calls
-    fn set_read_timeout(&mut self, duration: Option<Duration>) -> io::Result<()>;
-    /// Set write timeout for IO calls
-    fn set_write_timeout(&mut self, duration: Option<Duration>) -> io::Result<()>;
-}
-
-impl Timeout for NetworkStream {
-    fn set_read_timeout(&mut self, _duration: Option<Duration>) -> io::Result<()> {
-        // FIXME
-        // match *self {
-        //     NetworkStream::Tcp(ref mut stream) => stream.set_read_timeout(duration),
-        //     NetworkStream::Tls(ref mut stream) => stream.get_ref().set_read_timeout(duration),
-        //     NetworkStream::Mock(_) => Ok(()),
-        // }
-
-        Ok(())
-    }
-
-    /// Set write timeout for IO calls
-    fn set_write_timeout(&mut self, _duration: Option<Duration>) -> io::Result<()> {
-        // FIXME
-        // match *self {
-        //     NetworkStream::Tcp(ref mut stream) => stream.set_write_timeout(duration),
-        //     NetworkStream::Tls(ref mut stream) => stream.get_ref().set_write_timeout(duration),
-        //     NetworkStream::Mock(_) => Ok(()),
-        // }
-        Ok(())
-    }
-}
