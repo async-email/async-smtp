@@ -4,6 +4,7 @@ mod test {
     use async_smtp::{ClientSecurity, Envelope, SendableEmail, SmtpClient};
 
     #[async_attributes::test]
+    #[ignore] // ignored as this needs a running server
     async fn smtp_transport_simple() {
         let email = SendableEmail::new(
             Envelope::new(
