@@ -1,7 +1,7 @@
 #[cfg(test)]
 #[cfg(feature = "smtp-transport")]
 mod test {
-    use async_smtp::{ClientSecurity, Envelope, SendableEmail, SmtpClient, Transport};
+    use async_smtp::{ClientSecurity, Envelope, SendableEmail, SmtpClient};
 
     #[async_attributes::test]
     async fn smtp_transport_simple() {
@@ -12,15 +12,19 @@ mod test {
             )
             .unwrap(),
             "id",
-            "Hello ß☺ example",
+            "From: user@localhost\r\n\
+             Content-Type: text/plain\r\n\
+             \r\n\
+             Hello example",
         );
 
-        SmtpClient::with_security("127.0.0.1:2525", ClientSecurity::None)
+        println!("connecting");
+        let mut transport = SmtpClient::with_security("127.0.0.1:2525", ClientSecurity::None)
             .await
             .unwrap()
-            .into_transport()
-            .send(email)
-            .await
-            .unwrap();
+            .into_transport();
+
+        println!("sending");
+        transport.connect_and_send(email).await.unwrap();
     }
 }

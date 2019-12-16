@@ -5,6 +5,7 @@ use std::path::Path;
 use std::process::Command;
 
 #[test]
+#[ignore]
 fn book_test() {
     let mut book_path = env::current_dir().unwrap();
     book_path.push(
