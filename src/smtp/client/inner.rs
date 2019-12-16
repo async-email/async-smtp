@@ -2,7 +2,6 @@ use std::fmt::{Debug, Display};
 use std::string::String;
 use std::time::Duration;
 
-use async_std::future::timeout;
 use async_std::io::{self, BufReader, Read, Write};
 use async_std::net::ToSocketAddrs;
 use async_std::pin::Pin;
@@ -11,13 +10,11 @@ use log::debug;
 use pin_project::pin_project;
 
 use crate::smtp::authentication::{Credentials, Mechanism};
-use crate::smtp::client::net::{ClientTlsParameters, Connector, NetworkStream, Timeout};
+use crate::smtp::client::net::{ClientTlsParameters, Connector, NetworkStream};
 use crate::smtp::client::ClientCodec;
 use crate::smtp::commands::*;
 use crate::smtp::error::{Error, SmtpResult};
 use crate::smtp::response::parse_response;
-
-const CLOSE_TIMEOUT: u64 = 5;
 
 /// Returns the string replacing all the CRLF with "\<CRLF\>"
 /// Used for debug displays
@@ -27,12 +24,22 @@ fn escape_crlf(string: &str) -> String {
 
 /// Structure that implements the SMTP client
 #[pin_project]
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct InnerClient<S: Write + Read = NetworkStream> {
     /// TCP stream between client and server
     /// Value is None before connection
     #[pin]
     pub(crate) stream: Option<S>,
+    timeout: Option<Duration>,
+}
+
+impl<S: Write + Read> Default for InnerClient<S> {
+    fn default() -> Self {
+        InnerClient {
+            stream: None,
+            timeout: None,
+        }
+    }
 }
 
 macro_rules! return_err (
@@ -46,19 +53,16 @@ impl<S: Write + Read> InnerClient<S> {
     ///
     /// It does not connects to the server, but only creates the `Client`
     pub fn new() -> InnerClient<S> {
-        InnerClient { stream: None }
+        InnerClient::default()
     }
 }
 
-impl<S: Connector + Write + Read + Timeout + Unpin> InnerClient<S> {
+impl<S: Connector + Write + Read + Unpin> InnerClient<S> {
     /// Closes the SMTP transaction if possible.
     pub async fn close(mut self: Pin<&mut Self>) -> Result<(), Error> {
-        timeout(
-            Duration::from_secs(CLOSE_TIMEOUT),
-            self.as_mut().command(QuitCommand),
-        )
-        .await??;
+        self.as_mut().command(QuitCommand).await?;
         self.get_mut().stream = None;
+
         Ok(())
     }
 
@@ -75,6 +79,7 @@ impl<S: Connector + Write + Read + Timeout + Unpin> InnerClient<S> {
         match self.stream {
             Some(stream) => Ok(InnerClient {
                 stream: Some(stream.upgrade_tls(tls_parameters).await?),
+                timeout: self.timeout,
             }),
             None => Ok(self),
         }
@@ -88,13 +93,16 @@ impl<S: Connector + Write + Read + Timeout + Unpin> InnerClient<S> {
             .unwrap_or(false)
     }
 
-    /// Set timeout
+    /// Set read and write timeout.
     pub fn set_timeout(&mut self, duration: Option<Duration>) -> io::Result<()> {
-        if let Some(ref mut stream) = self.stream {
-            stream.set_read_timeout(duration)?;
-            stream.set_write_timeout(duration)?;
-        }
+        self.timeout = duration;
+
         Ok(())
+    }
+
+    /// Get the read and write timeout.
+    pub fn timeout(&mut self) -> Option<&Duration> {
+        self.timeout.as_ref()
     }
 
     /// Connects to the configured server
@@ -176,21 +184,25 @@ impl<S: Connector + Write + Read + Timeout + Unpin> InnerClient<S> {
         let this = self.as_mut().project();
         let _: Pin<&mut Option<S>> = this.stream;
 
-        let stream = this.stream.as_pin_mut().unwrap();
+        let mut stream = this.stream.as_pin_mut().unwrap();
 
-        codec.encode(&message_bytes, stream).await?;
-        self.as_mut().write(b"\r\n.\r\n").await?;
+        with_timeout(this.timeout.as_ref(), async move {
+            codec.encode(&message_bytes, &mut stream).await?;
+            stream.write_all(b"\r\n.\r\n").await?;
+            Ok(())
+        })
+        .await?;
 
         self.read_response().await
     }
 
-    /// Sends an SMTP command
+    /// Send the given SMTP command to the server.
     pub async fn command<C: Display>(mut self: Pin<&mut Self>, command: C) -> SmtpResult {
         self.as_mut().write(command.to_string().as_bytes()).await?;
         self.read_response().await
     }
 
-    /// Writes a string to the server
+    /// Writes the given data to the server.
     async fn write(mut self: Pin<&mut Self>, string: &[u8]) -> Result<(), Error> {
         if self.stream.is_none() {
             return Err(From::from("Connection closed"));
@@ -199,8 +211,12 @@ impl<S: Connector + Write + Read + Timeout + Unpin> InnerClient<S> {
         let _: Pin<&mut Option<S>> = this.stream;
         let mut stream = this.stream.as_pin_mut().unwrap();
 
-        stream.write_all(string).await?;
-        stream.flush().await?;
+        with_timeout(this.timeout.as_ref(), async move {
+            stream.write_all(string).await?;
+            stream.flush().await?;
+            Ok(())
+        })
+        .await?;
 
         debug!(
             ">> {}",
@@ -209,7 +225,7 @@ impl<S: Connector + Write + Read + Timeout + Unpin> InnerClient<S> {
         Ok(())
     }
 
-    /// Gets the SMTP response
+    /// Read an SMTP response from the wire.
     pub async fn read_response(mut self: Pin<&mut Self>) -> SmtpResult {
         let this = self.as_mut().project();
         let stream: Pin<&mut S> = this.stream.as_pin_mut().unwrap();
@@ -217,8 +233,12 @@ impl<S: Connector + Write + Read + Timeout + Unpin> InnerClient<S> {
         let mut reader = BufReader::new(stream);
         let mut buffer = String::with_capacity(100);
 
-        while reader.read_line(&mut buffer).await? > 0 {
-            println!("<< {}", escape_crlf(&buffer));
+        loop {
+            let read = with_timeout(this.timeout.as_ref(), reader.read_line(&mut buffer)).await?;
+            if read == 0 {
+                break;
+            }
+            debug!("<< {}", escape_crlf(&buffer));
             match parse_response(&buffer) {
                 Ok((_remaining, response)) => {
                     if response.is_positive() {
@@ -239,6 +259,20 @@ impl<S: Connector + Write + Read + Timeout + Unpin> InnerClient<S> {
 
         Err(io::Error::new(io::ErrorKind::Other, "incomplete").into())
     }
+}
+
+/// Execute io operations with an optional timeout using.
+async fn with_timeout<T, F>(timeout: Option<&Duration>, f: F) -> Result<T, Error>
+where
+    F: Future<Output = async_std::io::Result<T>>,
+{
+    let r = if let Some(timeout) = timeout {
+        async_std::io::timeout(*timeout, f).await?
+    } else {
+        f.await?
+    };
+
+    Ok(r)
 }
 
 #[cfg(test)]

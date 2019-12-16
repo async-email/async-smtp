@@ -243,10 +243,8 @@ impl<'a> SmtpTransport {
     ///
     /// It does not connect to the server, but only creates the `SmtpTransport`
     pub fn new(builder: SmtpClient) -> SmtpTransport {
-        let client = InnerClient::new();
-
         SmtpTransport {
-            client,
+            client: InnerClient::new(),
             server_info: None,
             client_info: builder,
             state: State {
@@ -378,7 +376,7 @@ impl<'a> SmtpTransport {
                     try_smtp!(client.command(StarttlsCommand).await, self);
                 }
 
-                let client = std::mem::replace(&mut self.client, InnerClient { stream: None });
+                let client = std::mem::replace(&mut self.client, InnerClient::default());
                 let ssl_client = client.upgrade_tls_stream(tls_parameters).await?;
                 std::mem::replace(&mut self.client, ssl_client);
 

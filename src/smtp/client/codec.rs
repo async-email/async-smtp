@@ -1,7 +1,5 @@
-use async_std::io::Write;
+use async_std::io::{self, Write};
 use async_std::prelude::*;
-
-use crate::smtp::error::Error;
 
 /// The codec used for transparency
 #[derive(Default, Clone, Copy, Debug)]
@@ -23,11 +21,7 @@ impl ClientCodec {
 impl ClientCodec {
     /// Adds transparency
     /// TODO: replace CR and LF by CRLF
-    pub async fn encode<W: Write + Unpin>(
-        &mut self,
-        frame: &[u8],
-        mut buf: W,
-    ) -> Result<(), Error> {
+    pub async fn encode<W: Write + Unpin>(&mut self, frame: &[u8], mut buf: W) -> io::Result<()> {
         match frame.len() {
             0 => {
                 match self.escape_count {
