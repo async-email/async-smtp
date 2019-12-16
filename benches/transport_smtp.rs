@@ -4,9 +4,11 @@ use async_smtp::{
 };
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
+const SERVER: &str = "127.0.0.1:2525";
+
 fn bench_simple_send(c: &mut Criterion) {
     let mut sender = async_std::task::block_on(async move {
-        SmtpClient::with_security("127.0.0.1:2525", ClientSecurity::None).await
+        SmtpClient::with_security(SERVER, ClientSecurity::None).await
     })
     .unwrap()
     .into_transport();
@@ -20,7 +22,10 @@ fn bench_simple_send(c: &mut Criterion) {
                 )
                 .unwrap(),
                 "id".to_string(),
-                "Hello ß☺ example".to_string().into_bytes(),
+                "From: user@localhost\r\n\
+                 Content-Type: text/plain\r\n\
+                 \r\n\
+                 Hello example",
             );
             let result = black_box(async_std::task::block_on(async {
                 sender.send(email).await
@@ -32,7 +37,7 @@ fn bench_simple_send(c: &mut Criterion) {
 
 fn bench_reuse_send(c: &mut Criterion) {
     let mut sender = async_std::task::block_on(async move {
-        SmtpClient::with_security("127.0.0.1:2525", ClientSecurity::None).await
+        SmtpClient::with_security(SERVER, ClientSecurity::None).await
     })
     .unwrap()
     .connection_reuse(ConnectionReuseParameters::ReuseUnlimited)
@@ -46,7 +51,10 @@ fn bench_reuse_send(c: &mut Criterion) {
                 )
                 .unwrap(),
                 "id".to_string(),
-                "Hello ß☺ example".to_string().into_bytes(),
+                "From: user@localhost\r\n\
+                 Content-Type: text/plain\r\n\
+                 \r\n\
+                 Hello example",
             );
             let result = black_box(async_std::task::block_on(async {
                 sender.send(email).await

@@ -181,19 +181,27 @@ impl Connector for NetworkStream {
         tls_parameters: Option<&ClientTlsParameters>,
     ) -> io::Result<NetworkStream> {
         let tcp_stream = match timeout {
-            Some(duration) => {
-                io::timeout(duration, async move { TcpStream::connect(addr).await }).await?
-            }
+            Some(duration) => io::timeout(duration, TcpStream::connect(addr)).await?,
             None => TcpStream::connect(addr).await?,
         };
 
         match tls_parameters {
-            Some(context) => context
-                .connector
-                .connect(&context.domain, tcp_stream)
+            Some(context) => match timeout {
+                Some(duration) => async_std::future::timeout(
+                    duration,
+                    context.connector.connect(&context.domain, tcp_stream),
+                )
                 .await
+                .map_err(|e| io::Error::new(ErrorKind::TimedOut, e))?
                 .map(NetworkStream::Tls)
                 .map_err(|e| io::Error::new(ErrorKind::Other, e)),
+                None => context
+                    .connector
+                    .connect(&context.domain, tcp_stream)
+                    .await
+                    .map(NetworkStream::Tls)
+                    .map_err(|e| io::Error::new(ErrorKind::Other, e)),
+            },
             None => Ok(NetworkStream::Tcp(tcp_stream)),
         }
     }

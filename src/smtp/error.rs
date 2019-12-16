@@ -37,6 +37,7 @@ pub enum Error {
     Tls(native_tls::Error),
     /// Parsing error
     Parsing(nom::error::ErrorKind),
+    Timeout(async_std::future::TimeoutError),
 }
 
 impl Display for Error {
@@ -67,6 +68,7 @@ impl StdError for Error {
             Io(ref err) => err.description(),
             Tls(ref err) => err.description(),
             Parsing(ref err) => err.description(),
+            Timeout(ref err) => err.description(),
         }
     }
 
@@ -76,6 +78,7 @@ impl StdError for Error {
             Utf8Parsing(ref err) => Some(&*err),
             Io(ref err) => Some(&*err),
             Tls(ref err) => Some(&*err),
+            Timeout(ref err) => Some(&*err),
             _ => None,
         }
     }
@@ -128,6 +131,12 @@ impl From<Response> for Error {
 impl From<&'static str> for Error {
     fn from(string: &'static str) -> Error {
         Client(string)
+    }
+}
+
+impl From<async_std::future::TimeoutError> for Error {
+    fn from(err: async_std::future::TimeoutError) -> Error {
+        Timeout(err)
     }
 }
 

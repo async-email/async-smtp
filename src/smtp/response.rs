@@ -241,7 +241,7 @@ fn parse_detail(i: &str) -> IResult<&str, Detail> {
     ))(i)
 }
 
-fn parse_response(i: &str) -> IResult<&str, Response> {
+pub(crate) fn parse_response(i: &str) -> IResult<&str, Response> {
     let (i, lines) = many0(tuple((
         parse_code,
         preceded(tag("-"), take_until("\r\n")),

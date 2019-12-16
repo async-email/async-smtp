@@ -183,6 +183,19 @@ impl SmtpClient {
     pub fn into_transport(self) -> SmtpTransport {
         SmtpTransport::new(self)
     }
+
+    fn get_accepted_mechanism(&self, encrypted: bool) -> &[Mechanism] {
+        match self.authentication_mechanism {
+            Some(ref mechanism) => mechanism,
+            None => {
+                if encrypted {
+                    DEFAULT_ENCRYPTED_MECHANISMS
+                } else {
+                    DEFAULT_UNENCRYPTED_MECHANISMS
+                }
+            }
+        }
+    }
 }
 
 /// Represents the state of a client
@@ -217,7 +230,7 @@ macro_rules! try_smtp (
             Err(err) => {
                 if !$client.state.panic {
                     $client.state.panic = true;
-                    $client.close();
+                    $client.close().await?;
                 }
                 return Err(From::from(err))
             },
@@ -243,14 +256,15 @@ impl<'a> SmtpTransport {
         }
     }
 
+    /// Try to connect, if not already connected.
     pub async fn connect(&mut self) -> Result<(), Error> {
         // Check if the connection is still available
         if (self.state.connection_reuse_count > 0) && (!self.client.is_connected()) {
-            self.close();
+            self.close().await?;
         }
 
         if self.state.connection_reuse_count > 0 {
-            info!(
+            debug!(
                 "connection already established to {}",
                 self.client_info.server_addr
             );
@@ -259,7 +273,6 @@ impl<'a> SmtpTransport {
 
         {
             let mut client = Pin::new(&mut self.client);
-
             client
                 .connect(
                     &self.client_info.server_addr,
@@ -276,10 +289,75 @@ impl<'a> SmtpTransport {
         }
 
         // Log the connection
-        info!("connection established to {}", self.client_info.server_addr);
+        debug!("connection established to {}", self.client_info.server_addr);
 
         self.ehlo().await?;
 
+        self.try_tls().await?;
+
+        if self.client_info.credentials.is_some() {
+            self.try_login().await?;
+        }
+
+        Ok(())
+    }
+
+    async fn try_login(&mut self) -> Result<(), Error> {
+        let client = Pin::new(&mut self.client);
+        let mut found = false;
+
+        if !self.client_info.force_set_auth {
+            // Compute accepted mechanism
+            let accepted_mechanisms = self
+                .client_info
+                .get_accepted_mechanism(client.is_encrypted());
+
+            for mechanism in accepted_mechanisms {
+                if self
+                    .server_info
+                    .as_ref()
+                    .unwrap()
+                    .supports_auth_mechanism(*mechanism)
+                {
+                    found = true;
+
+                    try_smtp!(
+                        client
+                            .auth(*mechanism, self.client_info.credentials.as_ref().unwrap())
+                            .await,
+                        self
+                    );
+                    break;
+                }
+            }
+        } else {
+            let mut client = Pin::new(&mut self.client);
+
+            let mechanisms = self
+                .client_info
+                .authentication_mechanism
+                .as_ref()
+                .expect("force_set_auth set to true, but no authentication mechanism set");
+            for mechanism in mechanisms {
+                try_smtp!(
+                    client
+                        .as_mut()
+                        .auth(*mechanism, self.client_info.credentials.as_ref().unwrap())
+                        .await,
+                    self
+                );
+            }
+            found = true;
+        }
+
+        if !found {
+            info!("No supported authentication mechanisms available");
+        }
+
+        Ok(())
+    }
+
+    async fn try_tls(&mut self) -> Result<(), Error> {
         match (
             &self.client_info.security.clone(),
             self.server_info
@@ -288,11 +366,11 @@ impl<'a> SmtpTransport {
                 .supports_feature(Extension::StartTls),
         ) {
             (&ClientSecurity::Required(_), false) => {
-                return Err(From::from("Could not encrypt connection, aborting"));
+                Err(From::from("Could not encrypt connection, aborting"))
             }
-            (&ClientSecurity::Opportunistic(_), false) => (),
-            (&ClientSecurity::None, _) => (),
-            (&ClientSecurity::Wrapper(_), _) => (),
+            (&ClientSecurity::Opportunistic(_), false) => Ok(()),
+            (&ClientSecurity::None, _) => Ok(()),
+            (&ClientSecurity::Wrapper(_), _) => Ok(()),
             (&ClientSecurity::Opportunistic(ref tls_parameters), true)
             | (&ClientSecurity::Required(ref tls_parameters), true) => {
                 {
@@ -307,73 +385,12 @@ impl<'a> SmtpTransport {
                 debug!("connection encrypted");
 
                 // Send EHLO again
-                self.ehlo().await?;
+                self.ehlo().await.map(|_| ())
             }
         }
-
-        if self.client_info.credentials.is_some() {
-            let client = Pin::new(&mut self.client);
-            let mut found = false;
-
-            if !self.client_info.force_set_auth {
-                // Compute accepted mechanism
-                let accepted_mechanisms = match self.client_info.authentication_mechanism {
-                    Some(ref mechanism) => mechanism,
-                    None => {
-                        if client.is_encrypted() {
-                            DEFAULT_ENCRYPTED_MECHANISMS
-                        } else {
-                            DEFAULT_UNENCRYPTED_MECHANISMS
-                        }
-                    }
-                };
-
-                for mechanism in accepted_mechanisms {
-                    if self
-                        .server_info
-                        .as_ref()
-                        .unwrap()
-                        .supports_auth_mechanism(*mechanism)
-                    {
-                        found = true;
-
-                        try_smtp!(
-                            client
-                                .auth(*mechanism, self.client_info.credentials.as_ref().unwrap())
-                                .await,
-                            self
-                        );
-                        break;
-                    }
-                }
-            } else {
-                let mut client = Pin::new(&mut self.client);
-
-                let mechanisms = self
-                    .client_info
-                    .authentication_mechanism
-                    .as_ref()
-                    .expect("force_set_auth set to true, but no authentication mechanism set");
-                for mechanism in mechanisms {
-                    try_smtp!(
-                        client
-                            .as_mut()
-                            .auth(*mechanism, self.client_info.credentials.as_ref().unwrap())
-                            .await,
-                        self
-                    );
-                }
-                found = true;
-            }
-
-            if !found {
-                info!("No supported authentication mechanisms available");
-            }
-        }
-        Ok(())
     }
 
-    /// Gets the EHLO response and updates server information
+    /// Gets the EHLO response and updates server information.
     async fn ehlo(&mut self) -> SmtpResult {
         let client = Pin::new(&mut self.client);
 
@@ -395,17 +412,48 @@ impl<'a> SmtpTransport {
         Ok(ehlo_response)
     }
 
-    /// Reset the client state
-    pub fn close(&mut self) {
+    /// Reset the client state and close the connection.
+    pub async fn close(&mut self) -> Result<(), Error> {
         let client = Pin::new(&mut self.client);
 
         // Close the SMTP transaction if needed
-        client.close();
+        client.close().await?;
 
         // Reset the client state
         self.server_info = None;
         self.state.panic = false;
         self.state.connection_reuse_count = 0;
+
+        Ok(())
+    }
+
+    fn supports_feature(&self, keyword: Extension) -> bool {
+        self.server_info
+            .as_ref()
+            .map(|info| info.supports_feature(keyword))
+            .unwrap_or_default()
+    }
+
+    /// Called after sending out a message, to update the connection state.
+    async fn connection_was_used(&mut self) -> Result<(), Error> {
+        // Test if we can reuse the existing connection
+        match self.client_info.connection_reuse {
+            ConnectionReuseParameters::ReuseLimited(limit)
+                if self.state.connection_reuse_count >= limit =>
+            {
+                self.close().await?;
+            }
+            ConnectionReuseParameters::NoReuse => self.close().await?,
+            _ => (),
+        }
+
+        Ok(())
+    }
+
+    /// Try to connect and then send a message.
+    pub async fn connect_and_send(&mut self, email: SendableEmail) -> SmtpResult {
+        self.connect().await?;
+        self.send(email).await
     }
 }
 
@@ -414,36 +462,17 @@ impl<'a> Transport<'a> for SmtpTransport {
     type Result = SmtpResult;
 
     /// Sends an email
-    #[cfg_attr(
-        feature = "cargo-clippy",
-        allow(clippy::match_same_arms, clippy::cyclomatic_complexity)
-    )]
     async fn send(&mut self, email: SendableEmail) -> SmtpResult {
         let message_id = email.message_id().to_string();
-
-        if !self.client.is_connected() {
-            self.connect().await?;
-        }
 
         // Mail
         let mut mail_options = vec![];
 
-        if self
-            .server_info
-            .as_ref()
-            .unwrap()
-            .supports_feature(Extension::EightBitMime)
-        {
+        if self.supports_feature(Extension::EightBitMime) {
             mail_options.push(MailParameter::Body(MailBodyParameter::EightBitMime));
         }
 
-        if self
-            .server_info
-            .as_ref()
-            .unwrap()
-            .supports_feature(Extension::SmtpUtfEight)
-            && self.client_info.smtp_utf8
-        {
+        if self.supports_feature(Extension::SmtpUtfEight) && self.client_info.smtp_utf8 {
             mail_options.push(MailParameter::SmtpUtfEight);
         }
 
@@ -460,16 +489,6 @@ impl<'a> Transport<'a> for SmtpTransport {
             self
         );
 
-        // Log the mail command
-        info!(
-            "{}: from=<{}>",
-            message_id,
-            match email.envelope().from() {
-                Some(address) => address.to_string(),
-                None => "".to_string(),
-            }
-        );
-
         // Recipient
         for to_address in email.envelope().to() {
             try_smtp!(
@@ -480,7 +499,7 @@ impl<'a> Transport<'a> for SmtpTransport {
                 self
             );
             // Log the rcpt command
-            info!("{}: to=<{}>", message_id, to_address);
+            debug!("{}: to=<{}>", message_id, to_address);
         }
 
         // Data
@@ -494,7 +513,7 @@ impl<'a> Transport<'a> for SmtpTransport {
             self.state.connection_reuse_count += 1;
 
             // Log the message
-            info!(
+            debug!(
                 "{}: conn_use={}, status=sent ({})",
                 message_id,
                 self.state.connection_reuse_count,
@@ -509,16 +528,7 @@ impl<'a> Transport<'a> for SmtpTransport {
             );
         }
 
-        // Test if we can reuse the existing connection
-        match self.client_info.connection_reuse {
-            ConnectionReuseParameters::ReuseLimited(limit)
-                if self.state.connection_reuse_count >= limit =>
-            {
-                self.close()
-            }
-            ConnectionReuseParameters::NoReuse => self.close(),
-            _ => (),
-        }
+        self.connection_was_used().await?;
 
         result
     }
