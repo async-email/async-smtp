@@ -277,7 +277,7 @@ pub(crate) fn parse_response(i: &str) -> IResult<&str, Response> {
 
 #[cfg(test)]
 mod test {
-    use super::{Category, Code, Detail, Response, Severity};
+    use super::{parse_response, Category, Code, Detail, Response, Severity};
 
     #[test]
     fn test_severity_fmt() {
@@ -341,6 +341,16 @@ mod test {
 
         let wrong_end = "250-me\r\n250-8BITMIME\r\n250-SIZE 42\r\n250-AUTH PLAIN CRAM-MD5\r\n";
         assert!(wrong_end.parse::<Response>().is_err());
+    }
+
+    #[test]
+    fn test_response_incomplete() {
+        let raw_response = "250-smtp.example.org\r\n";
+        let res = parse_response(raw_response);
+        match res {
+            Err(nom::Err::Incomplete(_)) => {}
+            _ => panic!("Expected incomplete response, got {:?}", res),
+        }
     }
 
     #[test]
