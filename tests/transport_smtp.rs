@@ -20,7 +20,7 @@ mod test {
         );
 
         println!("connecting");
-        let mut transport = SmtpClient::with_security("127.0.0.1:2525", ClientSecurity::None)
+        let mut transport = SmtpClient::with_security("127.0.0.1:3025", ClientSecurity::None)
             .await
             .unwrap()
             .into_transport();
