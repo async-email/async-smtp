@@ -8,7 +8,7 @@ use std::string::ToString;
 
 use nom::{
     branch::alt,
-    bytes::complete::{tag, take_until},
+    bytes::streaming::{tag, take_until},
     combinator::{complete, map},
     multi::many0,
     sequence::{preceded, tuple},
