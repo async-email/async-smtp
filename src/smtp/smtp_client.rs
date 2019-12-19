@@ -315,42 +315,33 @@ impl<'a> SmtpTransport {
                 .client_info
                 .get_accepted_mechanism(client.is_encrypted());
 
-            for mechanism in accepted_mechanisms {
-                if self
-                    .server_info
-                    .as_ref()
-                    .unwrap()
-                    .supports_auth_mechanism(*mechanism)
+            if let Some(server_info) = &self.server_info {
+                if let Some(mechanism) = accepted_mechanisms
+                    .iter()
+                    .find(|mechanism| server_info.supports_auth_mechanism(**mechanism))
                 {
                     found = true;
 
-                    try_smtp!(
-                        client
-                            .auth(*mechanism, self.client_info.credentials.as_ref().unwrap())
-                            .await,
-                        self
-                    );
-                    break;
+                    if let Some(credentials) = &self.client_info.credentials {
+                        try_smtp!(client.auth(*mechanism, credentials).await, self);
+                    }
                 }
+            } else {
+                return Err(Error::NoServerInfo);
             }
         } else {
             let mut client = Pin::new(&mut self.client);
 
-            let mechanisms = self
-                .client_info
-                .authentication_mechanism
-                .as_ref()
-                .expect("force_set_auth set to true, but no authentication mechanism set");
-            for mechanism in mechanisms {
-                try_smtp!(
-                    client
-                        .as_mut()
-                        .auth(*mechanism, self.client_info.credentials.as_ref().unwrap())
-                        .await,
-                    self
-                );
+            if let Some(mechanisms) = self.client_info.authentication_mechanism.as_ref() {
+                for mechanism in mechanisms {
+                    if let Some(credentials) = &self.client_info.credentials {
+                        try_smtp!(client.as_mut().auth(*mechanism, credentials).await, self);
+                    }
+                }
+                found = true;
+            } else {
+                debug!("force_set_auth set to true, but no authentication mechanism set");
             }
-            found = true;
         }
 
         if !found {
@@ -361,12 +352,13 @@ impl<'a> SmtpTransport {
     }
 
     async fn try_tls(&mut self) -> Result<(), Error> {
+        let server_info = self
+            .server_info
+            .as_ref()
+            .ok_or_else(|| Error::NoServerInfo)?;
         match (
             &self.client_info.security.clone(),
-            self.server_info
-                .as_ref()
-                .unwrap()
-                .supports_feature(Extension::StartTls),
+            server_info.supports_feature(Extension::StartTls),
         ) {
             (&ClientSecurity::Required(_), false) => {
                 Err(From::from("Could not encrypt connection, aborting"))
@@ -407,10 +399,12 @@ impl<'a> SmtpTransport {
             self
         );
 
-        self.server_info = Some(try_smtp!(ServerInfo::from_response(&ehlo_response), self));
+        let server_info = try_smtp!(ServerInfo::from_response(&ehlo_response), self);
 
         // Print server information
-        debug!("server {}", self.server_info.as_ref().unwrap());
+        debug!("server {}", server_info);
+
+        self.server_info = Some(server_info);
 
         Ok(ehlo_response)
     }
@@ -508,10 +502,10 @@ impl<'a> Transport<'a> for SmtpTransport {
         // Data
         try_smtp!(client.as_mut().command(DataCommand).await, self);
 
-        // Message content
-        let result = client.as_mut().message(email.message()).await;
+        let res = client.as_mut().message(email.message()).await;
 
-        if result.is_ok() {
+        // Message content
+        if let Ok(result) = &res {
             // Increment the connection reuse counter
             self.state.connection_reuse_count += 1;
 
@@ -521,9 +515,6 @@ impl<'a> Transport<'a> for SmtpTransport {
                 message_id,
                 self.state.connection_reuse_count,
                 result
-                    .as_ref()
-                    .ok()
-                    .unwrap()
                     .message
                     .iter()
                     .next()
@@ -533,6 +524,6 @@ impl<'a> Transport<'a> for SmtpTransport {
 
         self.connection_was_used().await?;
 
-        result
+        res
     }
 }

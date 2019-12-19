@@ -38,6 +38,7 @@ pub enum Error {
     /// Parsing error
     Parsing(nom::error::ErrorKind),
     Timeout(async_std::future::TimeoutError),
+    NoServerInfo,
 }
 
 impl Display for Error {
@@ -69,6 +70,7 @@ impl StdError for Error {
             Tls(ref err) => err.description(),
             Parsing(ref err) => err.description(),
             Timeout(ref err) => err.description(),
+            NoServerInfo => "no server info",
         }
     }
 
