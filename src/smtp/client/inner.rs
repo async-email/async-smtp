@@ -94,10 +94,8 @@ impl<S: Connector + Write + Read + Unpin> InnerClient<S> {
     }
 
     /// Set read and write timeout.
-    pub fn set_timeout(&mut self, duration: Option<Duration>) -> io::Result<()> {
+    pub fn set_timeout(&mut self, duration: Option<Duration>) {
         self.timeout = duration;
-
-        Ok(())
     }
 
     /// Get the read and write timeout.
