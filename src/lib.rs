@@ -7,7 +7,8 @@
     unsafe_code,
     unstable_features,
     unused_import_braces,
-    missing_debug_implementations
+    missing_debug_implementations,
+    clippy::result_unwrap_used
 )]
 
 pub mod error;
