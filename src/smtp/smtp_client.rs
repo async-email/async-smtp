@@ -4,7 +4,6 @@ use async_std::net::{SocketAddr, ToSocketAddrs};
 use async_std::pin::Pin;
 use async_trait::async_trait;
 use log::{debug, info};
-use native_tls::TlsConnector;
 use pin_project::pin_project;
 
 use crate::smtp::authentication::{
@@ -29,7 +28,7 @@ pub const SUBMISSION_PORT: u16 = 587;
 pub const SUBMISSIONS_PORT: u16 = 465;
 
 /// How to apply TLS to a client connection
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum ClientSecurity {
     /// Insecure connection only (for testing purposes)
     None,
@@ -57,7 +56,7 @@ pub enum ConnectionReuseParameters {
 }
 
 /// Contains client configuration
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 #[allow(missing_debug_implementations)]
 pub struct SmtpClient {
     /// Enable connection reuse
@@ -119,7 +118,7 @@ impl SmtpClient {
     /// Creates an encrypted transport over submissions port, using the provided domain
     /// to validate TLS certificates.
     pub async fn new(domain: &str) -> Result<SmtpClient, Error> {
-        let tls = TlsConnector::new()?.into();
+        let tls = async_native_tls::TlsConnector::new();
 
         let tls_parameters = ClientTlsParameters::new(domain.to_string(), tls);
 
@@ -357,7 +356,7 @@ impl<'a> SmtpTransport {
             .as_ref()
             .ok_or_else(|| Error::NoServerInfo)?;
         match (
-            &self.client_info.security.clone(),
+            &self.client_info.security,
             server_info.supports_feature(Extension::StartTls),
         ) {
             (&ClientSecurity::Required(_), false) => {

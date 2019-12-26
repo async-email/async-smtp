@@ -34,7 +34,7 @@ pub enum Error {
     /// IO error
     Io(io::Error),
     /// TLS error
-    Tls(native_tls::Error),
+    Tls(async_native_tls::Error),
     /// Parsing error
     Parsing(nom::error::ErrorKind),
     Timeout(async_std::future::TimeoutError),
@@ -92,8 +92,8 @@ impl From<io::Error> for Error {
     }
 }
 
-impl From<native_tls::Error> for Error {
-    fn from(err: native_tls::Error) -> Error {
+impl From<async_native_tls::Error> for Error {
+    fn from(err: async_native_tls::Error) -> Error {
         Tls(err)
     }
 }

@@ -14,7 +14,6 @@ use pin_project::{pin_project, project};
 use crate::smtp::client::mock::MockStream;
 
 /// Parameters to use for secure clients
-#[derive(Clone)]
 pub struct ClientTlsParameters {
     /// A connector from `native-tls`
     pub connector: TlsConnector,
