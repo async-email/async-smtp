@@ -287,7 +287,7 @@ impl<'a> SmtpTransport {
                 )
                 .await?;
 
-            client.set_timeout(self.client_info.timeout)?;
+            client.set_timeout(self.client_info.timeout);
             let _response = client.read_response().await?;
         }
 
