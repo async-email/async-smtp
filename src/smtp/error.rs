@@ -38,6 +38,7 @@ pub enum Error {
     /// Parsing error
     Parsing(nom::error::ErrorKind),
     Timeout(async_std::future::TimeoutError),
+    NoStream,
     NoServerInfo,
 }
 
@@ -70,6 +71,7 @@ impl StdError for Error {
             Tls(ref err) => err.description(),
             Parsing(ref err) => err.description(),
             Timeout(ref err) => err.description(),
+            NoStream => "no stream",
             NoServerInfo => "no server info",
         }
     }
