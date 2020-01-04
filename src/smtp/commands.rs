@@ -166,8 +166,8 @@ pub struct HelpCommand {
 impl Display for HelpCommand {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         f.write_str("HELP")?;
-        if self.argument.is_some() {
-            write!(f, " {}", self.argument.as_ref().unwrap())?;
+        if let Some(arg) = &self.argument {
+            write!(f, " {}", arg)?;
         }
         f.write_str("\r\n")
     }
@@ -262,7 +262,12 @@ impl Display for AuthCommand {
             .map(|r| base64::encode_config(r.as_bytes(), base64::STANDARD));
 
         if self.mechanism.supports_initial_response() {
-            write!(f, "AUTH {} {}", self.mechanism, encoded_response.unwrap())?;
+            write!(
+                f,
+                "AUTH {} {}",
+                self.mechanism,
+                encoded_response.unwrap_or_default()
+            )?;
         } else {
             match encoded_response {
                 Some(response) => f.write_str(&response)?,

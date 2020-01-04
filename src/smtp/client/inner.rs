@@ -181,7 +181,7 @@ impl<S: Connector + Write + Read + Unpin> InnerClient<S> {
         let this = self.as_mut().project();
         let _: Pin<&mut Option<S>> = this.stream;
 
-        let mut stream = this.stream.as_pin_mut().unwrap();
+        let mut stream = this.stream.as_pin_mut().ok_or(Error::NoStream)?;
 
         with_timeout(this.timeout.as_ref(), async move {
             codec.encode(&message_bytes, &mut stream).await?;
@@ -206,7 +206,7 @@ impl<S: Connector + Write + Read + Unpin> InnerClient<S> {
         }
         let this = self.as_mut().project();
         let _: Pin<&mut Option<S>> = this.stream;
-        let mut stream = this.stream.as_pin_mut().unwrap();
+        let mut stream = this.stream.as_pin_mut().ok_or(Error::NoStream)?;
 
         with_timeout(this.timeout.as_ref(), async move {
             stream.write_all(string).await?;
@@ -225,7 +225,7 @@ impl<S: Connector + Write + Read + Unpin> InnerClient<S> {
     /// Read an SMTP response from the wire.
     pub async fn read_response(mut self: Pin<&mut Self>) -> SmtpResult {
         let this = self.as_mut().project();
-        let stream: Pin<&mut S> = this.stream.as_pin_mut().unwrap();
+        let stream = this.stream.as_pin_mut().ok_or(Error::NoStream)?;
 
         let mut reader = BufReader::new(stream);
         let mut buffer = String::with_capacity(100);
