@@ -4,100 +4,52 @@ use self::Error::*;
 use crate::smtp::response::{Response, Severity};
 use base64::DecodeError;
 use nom;
-use std::error::Error as StdError;
-use std::fmt;
-use std::fmt::{Display, Formatter};
 use std::io;
 use std::string::FromUtf8Error;
 
 /// An enum of all error kinds.
-#[derive(Debug)]
+#[derive(thiserror::Error, Debug)]
 pub enum Error {
     /// Transient SMTP error, 4xx reply code
     ///
     /// [RFC 5321, section 4.2.1](https://tools.ietf.org/html/rfc5321#section-4.2.1)
+    #[error("transient: {}", .0.first_line().unwrap_or("undetailed error during SMTP transaction"))]
     Transient(Response),
     /// Permanent SMTP error, 5xx reply code
     ///
     /// [RFC 5321, section 4.2.1](https://tools.ietf.org/html/rfc5321#section-4.2.1)
+    #[error("permanent: {}", .0.first_line().unwrap_or("undetailed error during SMTP transaction"))]
     Permanent(Response),
     /// Error parsing a response
+    #[error("{0}")]
     ResponseParsing(&'static str),
     /// Error parsing a base64 string in response
-    ChallengeParsing(DecodeError),
+    #[error("challenge parsing: {0}")]
+    ChallengeParsing(#[from] DecodeError),
     /// Error parsing UTF8in response
-    Utf8Parsing(FromUtf8Error),
+    #[error("utf8: {0}")]
+    Utf8Parsing(#[from] FromUtf8Error),
     /// Internal client error
+    #[error("client: {0}")]
     Client(&'static str),
     /// DNS resolution error
+    #[error("could not resolve hostname")]
     Resolution,
     /// IO error
-    Io(io::Error),
+    #[error("io: {0}")]
+    Io(#[from] io::Error),
     /// TLS error
-    Tls(async_native_tls::Error),
+    #[error("tls: {0}")]
+    Tls(#[from] async_native_tls::Error),
     /// Parsing error
+    #[error("parsing: {0:?}")]
     Parsing(nom::error::ErrorKind),
-    Timeout(async_std::future::TimeoutError),
+    #[error("timeout: {0}")]
+    Timeout(#[from] async_std::future::TimeoutError),
+    #[error("no stream")]
     NoStream,
+    #[error("no server info")]
     NoServerInfo,
-}
-
-impl Display for Error {
-    fn fmt(&self, fmt: &mut Formatter) -> Result<(), fmt::Error> {
-        fmt.write_str(self.description())
-    }
-}
-
-impl StdError for Error {
-    #[cfg_attr(feature = "cargo-clippy", allow(clippy::match_same_arms))]
-    fn description(&self) -> &str {
-        match *self {
-            // Try to display the first line of the server's response that usually
-            // contains a short humanly readable error message
-            Transient(ref err) => match err.first_line() {
-                Some(line) => line,
-                None => "undetailed transient error during SMTP transaction",
-            },
-            Permanent(ref err) => match err.first_line() {
-                Some(line) => line,
-                None => "undetailed permanent error during SMTP transaction",
-            },
-            ResponseParsing(err) => err,
-            ChallengeParsing(ref err) => err.description(),
-            Utf8Parsing(ref err) => err.description(),
-            Resolution => "could not resolve hostname",
-            Client(err) => err,
-            Io(ref err) => err.description(),
-            Tls(ref err) => err.description(),
-            Parsing(ref err) => err.description(),
-            Timeout(ref err) => err.description(),
-            NoStream => "no stream",
-            NoServerInfo => "no server info",
-        }
-    }
-
-    fn cause(&self) -> Option<&dyn StdError> {
-        match *self {
-            ChallengeParsing(ref err) => Some(&*err),
-            Utf8Parsing(ref err) => Some(&*err),
-            Io(ref err) => Some(&*err),
-            Tls(ref err) => Some(&*err),
-            Timeout(ref err) => Some(&*err),
-            _ => None,
-        }
-    }
-}
-
-impl From<io::Error> for Error {
-    fn from(err: io::Error) -> Error {
-        Io(err)
-    }
-}
-
-impl From<async_native_tls::Error> for Error {
-    fn from(err: async_native_tls::Error) -> Error {
-        Tls(err)
-    }
 }
 
 impl From<nom::Err<(&str, nom::error::ErrorKind)>> for Error {
@@ -107,18 +59,6 @@ impl From<nom::Err<(&str, nom::error::ErrorKind)>> for Error {
             nom::Err::Failure((_, k)) => k,
             nom::Err::Error((_, k)) => k,
         })
-    }
-}
-
-impl From<DecodeError> for Error {
-    fn from(err: DecodeError) -> Error {
-        ChallengeParsing(err)
-    }
-}
-
-impl From<FromUtf8Error> for Error {
-    fn from(err: FromUtf8Error) -> Error {
-        Utf8Parsing(err)
     }
 }
 
@@ -135,12 +75,6 @@ impl From<Response> for Error {
 impl From<&'static str> for Error {
     fn from(string: &'static str) -> Error {
         Client(string)
-    }
-}
-
-impl From<async_std::future::TimeoutError> for Error {
-    fn from(err: async_std::future::TimeoutError) -> Error {
-        Timeout(err)
     }
 }
 

@@ -18,7 +18,7 @@ use crate::Transport;
 
 pub mod error;
 
-/// Writes the content and the envelope information to a file
+/// Writes the content and the envelope information to a file.
 #[derive(Debug)]
 #[cfg_attr(
     feature = "serde-impls",

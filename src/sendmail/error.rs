@@ -1,33 +1,21 @@
 //! Error and result type for sendmail transport
 
-use async_std::io;
-use snafu::Snafu;
 use std::string::FromUtf8Error;
 
+use async_std::io;
+
 /// An enum of all error kinds.
-#[derive(Debug, Snafu)]
+#[derive(thiserror::Error, Debug)]
 pub enum Error {
     /// Internal client error
-    #[snafu(display("client error: {}", msg))]
-    Client { msg: String },
+    #[error("client error: {0}")]
+    Client(String),
     /// Error parsing UTF8in response
-    #[snafu(display("utf8 error: {}", err))]
-    Utf8Parsing { err: FromUtf8Error },
+    #[error("utf8 error: {0}")]
+    Utf8Parsing(#[from] FromUtf8Error),
     /// IO error
-    #[snafu(display("io error: {}", err))]
-    Io { err: io::Error },
-}
-
-impl From<io::Error> for Error {
-    fn from(err: io::Error) -> Error {
-        Error::Io { err }
-    }
-}
-
-impl From<FromUtf8Error> for Error {
-    fn from(err: FromUtf8Error) -> Error {
-        Error::Utf8Parsing { err }
-    }
+    #[error("io error: {0}")]
+    Io(#[from] io::Error),
 }
 
 /// sendmail result type

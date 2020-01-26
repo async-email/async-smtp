@@ -2,37 +2,24 @@
 
 use async_std::io;
 use serde_json;
-use snafu::Snafu;
 
 /// An enum of all error kinds.
-#[derive(Snafu, Debug)]
+#[derive(thiserror::Error, Debug)]
 pub enum Error {
     /// Internal client error
-    #[snafu(display("client error: {}", msg))]
-    Client { msg: &'static str },
+    #[error("client error: {0}")]
+    Client(&'static str),
     /// IO error
-    #[snafu(display("io error: {}", err))]
-    Io { err: io::Error },
+    #[error("io error: {0}")]
+    Io(#[from] io::Error),
     /// JSON serialization error
-    #[snafu(display("serialization error: {}", err))]
-    JsonSerialization { err: serde_json::Error },
-}
-
-impl From<io::Error> for Error {
-    fn from(err: io::Error) -> Error {
-        Error::Io { err }
-    }
-}
-
-impl From<serde_json::Error> for Error {
-    fn from(err: serde_json::Error) -> Error {
-        Error::JsonSerialization { err }
-    }
+    #[error("serialization error: {0}")]
+    JsonSerialization(#[from] serde_json::Error),
 }
 
 impl From<&'static str> for Error {
     fn from(string: &'static str) -> Error {
-        Error::Client { msg: string }
+        Error::Client(string)
     }
 }
 

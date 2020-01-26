@@ -87,8 +87,8 @@ impl<'a> Transport<'a> for SendmailTransport {
             return Ok(());
         }
 
-        Err(error::Error::Client {
-            msg: String::from_utf8(output.stderr)?,
-        })
+        Err(error::Error::Client(
+            String::from_utf8(output.stderr)?,
+        ))
     }
 }
