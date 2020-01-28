@@ -60,7 +60,8 @@ impl<S: Write + Read> InnerClient<S> {
 impl<S: Connector + Write + Read + Unpin> InnerClient<S> {
     /// Closes the SMTP transaction if possible.
     pub async fn close(mut self: Pin<&mut Self>) -> Result<(), Error> {
-        self.as_mut().command(QuitCommand).await?;
+        // don't send QuitCommand and wait for answer but
+        // rather rely on dropped stream to shutdown connections
         self.get_mut().stream = None;
 
         Ok(())
