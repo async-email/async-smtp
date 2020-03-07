@@ -1,16 +1,16 @@
 use std::ffi::OsStr;
 use std::fmt::{self, Display, Formatter};
+use std::io::Result as IoResult;
+use std::pin::Pin;
 use std::str::FromStr;
+use std::task::{Context, Poll};
 
-use async_std::io::{self, Cursor, Read};
-use async_std::pin::Pin;
-use async_std::prelude::*;
-use async_std::task::{Context, Poll};
 use fast_chemail::is_valid_email;
 use pin_project::{pin_project, project};
 
 use crate::error::EmailResult;
 use crate::error::Error;
+use crate::runtime::{ AsyncReadExt, Cursor, Read };
 
 /// Email address
 #[derive(PartialEq, Eq, Clone, Debug)]
@@ -110,7 +110,7 @@ impl Read for Message {
         self: Pin<&mut Self>,
         cx: &mut Context,
         buf: &mut [u8],
-    ) -> Poll<io::Result<usize>> {
+    ) -> Poll<IoResult<usize>> {
         #[project]
         match self.project() {
             Message::Reader(mut rdr) => {
@@ -171,7 +171,7 @@ impl SendableEmail {
         self.message
     }
 
-    pub async fn message_to_string(mut self) -> Result<String, io::Error> {
+    pub async fn message_to_string(mut self) -> IoResult<String> {
         let mut message_content = String::new();
         self.message.read_to_string(&mut message_content).await?;
         Ok(message_content)

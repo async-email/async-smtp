@@ -1,8 +1,7 @@
 //! Error and result type for sendmail transport
 
+use std::io::Error as IoError;
 use std::string::FromUtf8Error;
-
-use async_std::io;
 
 /// An enum of all error kinds.
 #[derive(thiserror::Error, Debug)]
@@ -15,7 +14,7 @@ pub enum Error {
     Utf8Parsing(#[from] FromUtf8Error),
     /// IO error
     #[error("io error: {0}")]
-    Io(#[from] io::Error),
+    Io(#[from] IoError),
 }
 
 /// sendmail result type

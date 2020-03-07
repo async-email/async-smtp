@@ -1,9 +1,12 @@
 #![allow(missing_docs)]
 
-use async_std::io::{self, Cursor, Read, Write};
-use async_std::pin::Pin;
-use async_std::task::{Context, Poll};
+use std::io;
+use std::pin::Pin;
+use std::task::{Context, Poll};
+
 use pin_project::pin_project;
+
+use crate::runtime::{ Cursor, Read, Write };
 
 pub type MockCursor = Cursor<Vec<u8>>;
 

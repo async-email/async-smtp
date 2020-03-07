@@ -1,11 +1,10 @@
+use std::io;
 use std::fmt::{Debug, Display};
+use std::future::Future;
+use std::pin::Pin;
 use std::string::String;
 use std::time::Duration;
 
-use async_std::io::{self, BufReader, Read, Write};
-use async_std::net::ToSocketAddrs;
-use async_std::pin::Pin;
-use async_std::prelude::*;
 use log::debug;
 use pin_project::pin_project;
 
@@ -15,6 +14,16 @@ use crate::smtp::client::ClientCodec;
 use crate::smtp::commands::*;
 use crate::smtp::error::{Error, SmtpResult};
 use crate::smtp::response::parse_response;
+use crate::runtime::{
+    Read,
+    Write,
+    AsyncWriteExt,
+    AsyncReadExt,
+    BufReadExt,
+    BufReader,
+    ToSocketAddrs,
+    io_timeout
+};
 
 /// Returns the string replacing all the CRLF with "\<CRLF\>"
 /// Used for debug displays
@@ -259,12 +268,12 @@ impl<S: Connector + Write + Read + Unpin> InnerClient<S> {
 }
 
 /// Execute io operations with an optional timeout using.
-async fn with_timeout<T, F>(timeout: Option<&Duration>, f: F) -> Result<T, Error>
+async fn with_timeout<T, F>(timeout_duration: Option<&Duration>, f: F) -> Result<T, Error>
 where
-    F: Future<Output = async_std::io::Result<T>>,
+    F: Future<Output = io::Result<T>>,
 {
-    let r = if let Some(timeout) = timeout {
-        async_std::io::timeout(*timeout, f).await?
+    let r = if let Some(timeout_duration) = timeout_duration {
+        io_timeout(*timeout_duration, f).await?
     } else {
         f.await?
     };

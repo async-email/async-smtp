@@ -1,5 +1,6 @@
-use async_std::io::{self, Write};
-use async_std::prelude::*;
+use std::io;
+
+use crate::runtime::{ Write, AsyncWriteExt };
 
 /// The codec used for transparency
 #[derive(Default, Clone, Copy, Debug)]

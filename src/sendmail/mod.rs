@@ -4,9 +4,10 @@
 use crate::sendmail::error::SendmailResult;
 use crate::SendableEmail;
 use crate::Transport;
+use crate::runtime::spawn_blocking;
 
-use async_std::prelude::*;
 use async_trait::async_trait;
+use futures::io::AsyncReadExt;
 use log::info;
 use std::convert::AsRef;
 use std::io::prelude::*;
@@ -60,7 +61,7 @@ impl<'a> Transport<'a> for SendmailTransport {
         let _ = email.message().read_to_string(&mut message_content).await;
 
         // TODO: Convert to real async, once async-std has a process implementation.
-        let output = async_std::task::spawn_blocking(move || {
+        let output = spawn_blocking(move || {
             // Spawn the sendmail command
             let mut process = Command::new(command)
                 .arg("-i")

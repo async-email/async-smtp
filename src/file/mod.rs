@@ -4,10 +4,8 @@
 //!
 
 use std::path::PathBuf;
+use std::path::Path;
 
-use async_std::fs::File;
-use async_std::path::Path;
-use async_std::prelude::*;
 use async_trait::async_trait;
 use serde_json;
 
@@ -15,6 +13,10 @@ use crate::file::error::FileResult;
 use crate::Envelope;
 use crate::SendableEmail;
 use crate::Transport;
+use crate::runtime::{
+    AsyncWriteExt,
+    File
+};
 
 pub mod error;
 
@@ -64,6 +66,9 @@ impl<'a> Transport<'a> for FileTransport {
             message_id,
             message: email.message_to_string().await?.as_bytes().to_vec(),
         })?;
+
+        #[cfg(feature="runtime-tokio")]
+        use tokio::io::AsyncWriteExt;
 
         File::create(file)
             .await?

@@ -12,6 +12,7 @@
     clippy::option_unwrap_used
 )]
 
+mod runtime;
 pub mod error;
 #[cfg(feature = "file-transport")]
 pub mod file;
