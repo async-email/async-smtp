@@ -1,11 +1,15 @@
 //! Error and result type for SMTP clients
 
-use self::Error::*;
-use crate::smtp::response::{Response, Severity};
-use base64::DecodeError;
-use nom;
 use std::io;
 use std::string::FromUtf8Error;
+
+use base64::DecodeError;
+use nom;
+
+use crate::smtp::response::{Response, Severity};
+use crate::runtime::TimeoutError;
+
+use self::Error::*;
 
 /// An enum of all error kinds.
 #[derive(thiserror::Error, Debug)]
@@ -45,7 +49,7 @@ pub enum Error {
     #[error("parsing: {0:?}")]
     Parsing(nom::error::ErrorKind),
     #[error("timeout: {0}")]
-    Timeout(#[from] async_std::future::TimeoutError),
+    Timeout(#[from] TimeoutError),
     #[error("no stream")]
     NoStream,
     #[error("no server info")]

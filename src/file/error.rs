@@ -1,6 +1,6 @@
 //! Error and result type for file transport
 
-use async_std::io;
+use std::io::Error as IoError;
 use serde_json;
 
 /// An enum of all error kinds.
@@ -11,7 +11,7 @@ pub enum Error {
     Client(&'static str),
     /// IO error
     #[error("io error: {0}")]
-    Io(#[from] io::Error),
+    Io(#[from] IoError),
     /// JSON serialization error
     #[error("serialization error: {0}")]
     JsonSerialization(#[from] serde_json::Error),

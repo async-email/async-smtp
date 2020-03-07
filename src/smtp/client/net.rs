@@ -1,16 +1,17 @@
 //! A trait to represent a stream
 
 use std::fmt;
+use std::io::{self, ErrorKind};
+use std::pin::Pin;
+use std::net::{Ipv4Addr, Shutdown, SocketAddr, SocketAddrV4};
 use std::time::Duration;
+use std::task::{Context, Poll};
 
 use async_native_tls::{TlsConnector, TlsStream};
-use async_std::io::{self, ErrorKind, Read, Write};
-use async_std::net::{Ipv4Addr, Shutdown, SocketAddr, SocketAddrV4, TcpStream};
-use async_std::pin::Pin;
-use async_std::task::{Context, Poll};
 use async_trait::async_trait;
 use pin_project::{pin_project, project};
 
+use crate::runtime::{ Read, TcpStream, timeout, io_timeout, Write };
 use crate::smtp::client::mock::MockStream;
 
 /// Parameters to use for secure clients
@@ -176,17 +177,17 @@ pub trait Connector: Sized {
 impl Connector for NetworkStream {
     async fn connect(
         addr: &SocketAddr,
-        timeout: Option<Duration>,
+        timeout_duration: Option<Duration>,
         tls_parameters: Option<&ClientTlsParameters>,
     ) -> io::Result<NetworkStream> {
-        let tcp_stream = match timeout {
-            Some(duration) => io::timeout(duration, TcpStream::connect(addr)).await?,
+        let tcp_stream = match timeout_duration {
+            Some(duration) => io_timeout(duration, TcpStream::connect(addr)).await?,
             None => TcpStream::connect(addr).await?,
         };
 
         match tls_parameters {
-            Some(context) => match timeout {
-                Some(duration) => async_std::future::timeout(
+            Some(context) => match timeout_duration {
+                Some(duration) => timeout(
                     duration,
                     context.connector.connect(&context.domain, tcp_stream),
                 )

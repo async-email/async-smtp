@@ -1,11 +1,12 @@
+use std::pin::Pin;
 use std::time::Duration;
+use std::net::SocketAddr;
 
-use async_std::net::{SocketAddr, ToSocketAddrs};
-use async_std::pin::Pin;
 use async_trait::async_trait;
 use log::{debug, info};
 use pin_project::pin_project;
 
+use crate::runtime::ToSocketAddrs;
 use crate::smtp::authentication::{
     Credentials, Mechanism, DEFAULT_ENCRYPTED_MECHANISMS, DEFAULT_UNENCRYPTED_MECHANISMS,
 };
