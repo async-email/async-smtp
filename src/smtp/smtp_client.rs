@@ -385,6 +385,7 @@ impl<'a> SmtpTransport {
         }
     }
 
+    /// Send the given SMTP command to the server.
     pub async fn command<C: Display>(&mut self, command: C) -> SmtpResult {
         let mut client = Pin::new(&mut self.client);
 
