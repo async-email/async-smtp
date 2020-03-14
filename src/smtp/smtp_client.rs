@@ -1,3 +1,4 @@
+use std::fmt::Display;
 use std::time::Duration;
 
 use async_std::net::{SocketAddr, ToSocketAddrs};
@@ -384,17 +385,20 @@ impl<'a> SmtpTransport {
         }
     }
 
+    pub async fn command<C: Display>(&mut self, command: C) -> SmtpResult {
+        let mut client = Pin::new(&mut self.client);
+
+        client.as_mut().command(command).await
+    }
+
     /// Gets the EHLO response and updates server information.
     async fn ehlo(&mut self) -> SmtpResult {
-        let client = Pin::new(&mut self.client);
-
         // Extended Hello
         let ehlo_response = try_smtp!(
-            client
-                .command(EhloCommand::new(ClientId::new(
-                    self.client_info.hello_name.to_string()
-                )))
-                .await,
+            self.command(EhloCommand::new(ClientId::new(
+                self.client_info.hello_name.to_string()
+            )))
+            .await,
             self
         );
 
