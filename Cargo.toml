@@ -26,8 +26,8 @@ hostname = { version = "0.1.5", optional = true }
 serde = { version = "^1.0", optional = true }
 serde_json = { version = "^1.0", optional = true }
 serde_derive = { version = "^1.0", optional = true }
+fast-socks5 = { version = "0.3.1", optional = true }
 fast_chemail = "^0.9"
-fast-socks5 = "0.3.1"
 async-native-tls = "0.3.1"
 async-std = { version = "1.4", features = ["unstable"] }
 async-trait = "0.1.17"
@@ -53,6 +53,7 @@ file-transport = ["serde-impls", "serde_json"]
 smtp-transport = ["bufstream", "base64", "nom", "hostname"]
 sendmail-transport = []
 native-tls-vendored = ["async-native-tls/vendored"]
+socks5 = ["fast-socks5"]
 
 [[example]]
 name = "smtp"
