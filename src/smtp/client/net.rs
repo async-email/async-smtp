@@ -9,6 +9,7 @@ use async_std::net::{Ipv4Addr, Shutdown, SocketAddr, SocketAddrV4, TcpStream};
 use async_std::pin::Pin;
 use async_std::task::{Context, Poll};
 use async_trait::async_trait;
+use fast_socks5::client::Socks5Stream;
 use pin_project::{pin_project, project};
 
 use crate::smtp::client::mock::MockStream;
@@ -45,6 +46,8 @@ pub enum NetworkStream {
     Tcp(#[pin] TcpStream),
     /// Encrypted TCP stream
     Tls(#[pin] TlsStream<TcpStream>),
+    /// Socks5 stream
+    Socks5Stream(#[pin] Socks5Stream<TcpStream>),
     /// Mock stream
     Mock(#[pin] MockStream),
 }
@@ -55,6 +58,7 @@ impl NetworkStream {
         match *self {
             NetworkStream::Tcp(ref s) => s.peer_addr(),
             NetworkStream::Tls(ref s) => s.get_ref().peer_addr(),
+            NetworkStream::Socks5Stream(ref s) => s.get_socket_ref().peer_addr(),
             NetworkStream::Mock(_) => Ok(SocketAddr::V4(SocketAddrV4::new(
                 Ipv4Addr::new(127, 0, 0, 1),
                 80,
@@ -67,6 +71,7 @@ impl NetworkStream {
         match *self {
             NetworkStream::Tcp(ref s) => s.shutdown(how),
             NetworkStream::Tls(ref s) => s.get_ref().shutdown(how),
+            NetworkStream::Socks5Stream(ref s) => s.get_socket_ref().shutdown(how),
             NetworkStream::Mock(_) => Ok(()),
         }
     }
@@ -87,6 +92,10 @@ impl Read for NetworkStream {
             }
             NetworkStream::Tls(s) => {
                 let _: Pin<&mut TlsStream<TcpStream>> = s;
+                s.poll_read(cx, buf)
+            }
+            NetworkStream::Socks5Stream(s) => {
+                let _: Pin<&mut Socks5Stream<TcpStream>> = s;
                 s.poll_read(cx, buf)
             }
             NetworkStream::Mock(s) => {
@@ -110,6 +119,9 @@ impl Write for NetworkStream {
                 let _: Pin<&mut TlsStream<TcpStream>> = s;
                 s.poll_write(cx, buf)
             }
+            NetworkStream::Socks5Stream(s) => {
+                s.poll_write(cx, buf)
+            }
             NetworkStream::Mock(s) => {
                 let _: Pin<&mut MockStream> = s;
                 s.poll_write(cx, buf)
@@ -129,6 +141,9 @@ impl Write for NetworkStream {
                 let _: Pin<&mut TlsStream<TcpStream>> = s;
                 s.poll_flush(cx)
             }
+            NetworkStream::Socks5Stream(s) => {
+                s.poll_flush(cx)
+            }
             NetworkStream::Mock(s) => {
                 let _: Pin<&mut MockStream> = s;
                 s.poll_flush(cx)
@@ -146,6 +161,9 @@ impl Write for NetworkStream {
             }
             NetworkStream::Tls(s) => {
                 let _: Pin<&mut TlsStream<TcpStream>> = s;
+                s.poll_close(cx)
+            }
+            NetworkStream::Socks5Stream(s) => {
                 s.poll_close(cx)
             }
             NetworkStream::Mock(s) => {
@@ -224,6 +242,7 @@ impl Connector for NetworkStream {
         match *self {
             NetworkStream::Tcp(_) => false,
             NetworkStream::Tls(_) => true,
+            NetworkStream::Socks5Stream(_) => false,
             NetworkStream::Mock(_) => false,
         }
     }

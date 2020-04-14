@@ -9,7 +9,7 @@ use pin_project::pin_project;
 use crate::smtp::authentication::{
     Credentials, Mechanism, DEFAULT_ENCRYPTED_MECHANISMS, DEFAULT_UNENCRYPTED_MECHANISMS,
 };
-use crate::smtp::client::net::ClientTlsParameters;
+use crate::smtp::client::net::{ClientTlsParameters, NetworkStream};
 use crate::smtp::client::InnerClient;
 use crate::smtp::commands::*;
 use crate::smtp::error::{Error, SmtpResult};
@@ -284,6 +284,45 @@ impl<'a> SmtpTransport {
                         _ => None,
                     },
                 )
+                .await?;
+
+            client.set_timeout(self.client_info.timeout);
+            let _response = client.read_response().await?;
+        }
+
+        // Log the connection
+        debug!("connection established to {}", self.client_info.server_addr);
+
+        self.ehlo().await?;
+
+        self.try_tls().await?;
+
+        if self.client_info.credentials.is_some() {
+            self.try_login().await?;
+        }
+
+        Ok(())
+    }
+
+    /// Try to connect to pre-defined stream, if not already connected.
+    pub async fn connect_with_stream(&mut self, stream: NetworkStream) -> Result<(), Error> {
+        // Check if the connection is still available
+        if (self.state.connection_reuse_count > 0) && (!self.client.is_connected()) {
+            self.close().await?;
+        }
+
+        if self.state.connection_reuse_count > 0 {
+            debug!(
+                "connection already established to {}",
+                self.client_info.server_addr
+            );
+            return Ok(());
+        }
+
+        {
+            let mut client = Pin::new(&mut self.client);
+            client
+                .connect_with_stream(stream)
                 .await?;
 
             client.set_timeout(self.client_info.timeout);
