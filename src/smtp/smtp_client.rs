@@ -11,6 +11,8 @@ use crate::smtp::authentication::{
     Credentials, Mechanism, DEFAULT_ENCRYPTED_MECHANISMS, DEFAULT_UNENCRYPTED_MECHANISMS,
 };
 use crate::smtp::client::net::ClientTlsParameters;
+#[cfg(feature = "socks5")]
+use crate::smtp::client::net::NetworkStream;
 use crate::smtp::client::InnerClient;
 use crate::smtp::commands::*;
 use crate::smtp::error::{Error, SmtpResult};
@@ -259,6 +261,22 @@ impl<'a> SmtpTransport {
         self.client.is_connected()
     }
 
+    /// Operations to perform right after the connection has been established
+    async fn post_connect(&mut self) -> Result<(), Error> {
+        // Log the connection
+        debug!("connection established to {}", self.client_info.server_addr);
+
+        self.ehlo().await?;
+
+        self.try_tls().await?;
+
+        if self.client_info.credentials.is_some() {
+            self.try_login().await?;
+        }
+
+        Ok(())
+    }
+
     /// Try to connect, if not already connected.
     pub async fn connect(&mut self) -> Result<(), Error> {
         // Check if the connection is still available
@@ -291,18 +309,36 @@ impl<'a> SmtpTransport {
             let _response = client.read_response().await?;
         }
 
-        // Log the connection
-        debug!("connection established to {}", self.client_info.server_addr);
+        self.post_connect().await
+    }
 
-        self.ehlo().await?;
-
-        self.try_tls().await?;
-
-        if self.client_info.credentials.is_some() {
-            self.try_login().await?;
+    /// Try to connect to pre-defined stream, if not already connected.
+    #[cfg(feature = "socks5")]
+    pub async fn connect_with_stream(&mut self, stream: NetworkStream) -> Result<(), Error> {
+        // Check if the connection is still available
+        if (self.state.connection_reuse_count > 0) && (!self.client.is_connected()) {
+            self.close().await?;
         }
 
-        Ok(())
+        if self.state.connection_reuse_count > 0 {
+            debug!(
+                "connection already established to {}",
+                self.client_info.server_addr
+            );
+            return Ok(());
+        }
+
+        {
+            let mut client = Pin::new(&mut self.client);
+            client
+                .connect_with_stream(stream)
+                .await?;
+
+            client.set_timeout(self.client_info.timeout);
+            let _response = client.read_response().await?;
+        }
+
+        self.post_connect().await
     }
 
     async fn try_login(&mut self) -> Result<(), Error> {
