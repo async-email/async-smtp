@@ -7,7 +7,7 @@ use async_std::pin::Pin;
 use async_std::prelude::*;
 use async_std::task::{Context, Poll};
 use fast_chemail::is_valid_email;
-use pin_project::{pin_project, project};
+use pin_project::pin_project;
 
 use crate::error::EmailResult;
 use crate::error::Error;
@@ -96,7 +96,7 @@ impl Envelope {
     }
 }
 
-#[pin_project]
+#[pin_project(project = MessageProj)]
 #[allow(missing_debug_implementations)]
 pub enum Message {
     Reader(#[pin] Box<dyn Read + Send + Sync>),
@@ -104,21 +104,19 @@ pub enum Message {
 }
 
 impl Read for Message {
-    #[project]
     #[allow(unsafe_code)]
     fn poll_read(
         self: Pin<&mut Self>,
         cx: &mut Context,
         buf: &mut [u8],
     ) -> Poll<io::Result<usize>> {
-        #[project]
         match self.project() {
-            Message::Reader(mut rdr) => {
+            MessageProj::Reader(mut rdr) => {
                 // Probably safe..
                 let r: Pin<&mut _> = unsafe { Pin::new_unchecked(&mut **rdr) };
                 r.poll_read(cx, buf)
             }
-            Message::Bytes(rdr) => {
+            MessageProj::Bytes(rdr) => {
                 let _: Pin<&mut _> = rdr;
                 rdr.poll_read(cx, buf)
             }

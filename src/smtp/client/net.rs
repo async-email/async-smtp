@@ -11,7 +11,7 @@ use async_std::task::{Context, Poll};
 use async_trait::async_trait;
 #[cfg(feature = "socks5")]
 use fast_socks5::client::Socks5Stream;
-use pin_project::{pin_project, project};
+use pin_project::pin_project;
 
 use crate::smtp::client::mock::MockStream;
 
@@ -40,7 +40,7 @@ impl ClientTlsParameters {
 }
 
 /// Represents the different types of underlying network streams
-#[pin_project]
+#[pin_project(project = NetworkStreamProj)]
 #[allow(missing_debug_implementations)]
 pub enum NetworkStream {
     /// Plain TCP stream
@@ -82,28 +82,26 @@ impl NetworkStream {
 }
 
 impl Read for NetworkStream {
-    #[project]
     fn poll_read(
         self: Pin<&mut Self>,
         cx: &mut Context,
         buf: &mut [u8],
     ) -> Poll<io::Result<usize>> {
-        #[project]
         match self.project() {
-            NetworkStream::Tcp(s) => {
+            NetworkStreamProj::Tcp(s) => {
                 let _: Pin<&mut TcpStream> = s;
                 s.poll_read(cx, buf)
             }
-            NetworkStream::Tls(s) => {
+            NetworkStreamProj::Tls(s) => {
                 let _: Pin<&mut TlsStream<TcpStream>> = s;
                 s.poll_read(cx, buf)
             }
             #[cfg(feature = "socks5")]
-            NetworkStream::Socks5Stream(s) => {
+            NetworkStreamProj::Socks5Stream(s) => {
                 let _: Pin<&mut Socks5Stream<TcpStream>> = s;
                 s.poll_read(cx, buf)
             }
-            NetworkStream::Mock(s) => {
+            NetworkStreamProj::Mock(s) => {
                 let _: Pin<&mut MockStream> = s;
                 s.poll_read(cx, buf)
             }
@@ -112,69 +110,57 @@ impl Read for NetworkStream {
 }
 
 impl Write for NetworkStream {
-    #[project]
     fn poll_write(self: Pin<&mut Self>, cx: &mut Context, buf: &[u8]) -> Poll<io::Result<usize>> {
-        #[project]
         match self.project() {
-            NetworkStream::Tcp(s) => {
+            NetworkStreamProj::Tcp(s) => {
                 let _: Pin<&mut TcpStream> = s;
                 s.poll_write(cx, buf)
             }
-            NetworkStream::Tls(s) => {
+            NetworkStreamProj::Tls(s) => {
                 let _: Pin<&mut TlsStream<TcpStream>> = s;
                 s.poll_write(cx, buf)
             }
             #[cfg(feature = "socks5")]
-            NetworkStream::Socks5Stream(s) => {
-                s.poll_write(cx, buf)
-            }
-            NetworkStream::Mock(s) => {
+            NetworkStreamProj::Socks5Stream(s) => s.poll_write(cx, buf),
+            NetworkStreamProj::Mock(s) => {
                 let _: Pin<&mut MockStream> = s;
                 s.poll_write(cx, buf)
             }
         }
     }
 
-    #[project]
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context) -> Poll<io::Result<()>> {
-        #[project]
         match self.project() {
-            NetworkStream::Tcp(s) => {
+            NetworkStreamProj::Tcp(s) => {
                 let _: Pin<&mut TcpStream> = s;
                 s.poll_flush(cx)
             }
-            NetworkStream::Tls(s) => {
+            NetworkStreamProj::Tls(s) => {
                 let _: Pin<&mut TlsStream<TcpStream>> = s;
                 s.poll_flush(cx)
             }
             #[cfg(feature = "socks5")]
-            NetworkStream::Socks5Stream(s) => {
-                s.poll_flush(cx)
-            }
-            NetworkStream::Mock(s) => {
+            NetworkStreamProj::Socks5Stream(s) => s.poll_flush(cx),
+            NetworkStreamProj::Mock(s) => {
                 let _: Pin<&mut MockStream> = s;
                 s.poll_flush(cx)
             }
         }
     }
 
-    #[project]
     fn poll_close(self: Pin<&mut Self>, cx: &mut Context) -> Poll<io::Result<()>> {
-        #[project]
         match self.project() {
-            NetworkStream::Tcp(s) => {
+            NetworkStreamProj::Tcp(s) => {
                 let _: Pin<&mut TcpStream> = s;
                 s.poll_close(cx)
             }
-            NetworkStream::Tls(s) => {
+            NetworkStreamProj::Tls(s) => {
                 let _: Pin<&mut TlsStream<TcpStream>> = s;
                 s.poll_close(cx)
             }
             #[cfg(feature = "socks5")]
-            NetworkStream::Socks5Stream(s) => {
-                s.poll_close(cx)
-            }
-            NetworkStream::Mock(s) => {
+            NetworkStreamProj::Socks5Stream(s) => s.poll_close(cx),
+            NetworkStreamProj::Mock(s) => {
                 let _: Pin<&mut MockStream> = s;
                 s.poll_close(cx)
             }
