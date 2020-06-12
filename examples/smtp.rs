@@ -19,7 +19,7 @@ fn main() {
             .unwrap()
             .into_transport();
         // Send the email
-        let result = mailer.send(email).await;
+        let result = mailer.connect_and_send(email).await;
 
         if result.is_ok() {
             println!("Email sent");
