@@ -1,7 +1,6 @@
 //! Error and result type for file transport
 
 use async_std::io;
-use serde_json;
 
 /// An enum of all error kinds.
 #[derive(thiserror::Error, Debug)]

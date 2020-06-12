@@ -133,17 +133,17 @@ impl ServerInfo {
             }
 
             let split: Vec<&str> = line.split_whitespace().collect();
-            match split[0] {
-                "8BITMIME" => {
+            match split.get(0).map(|s| *s) {
+                Some("8BITMIME") => {
                     features.insert(Extension::EightBitMime);
                 }
-                "SMTPUTF8" => {
+                Some("SMTPUTF8") => {
                     features.insert(Extension::SmtpUtfEight);
                 }
-                "STARTTLS" => {
+                Some("STARTTLS") => {
                     features.insert(Extension::StartTls);
                 }
-                "AUTH" => {
+                Some("AUTH") => {
                     for &mechanism in &split[1..] {
                         match mechanism {
                             "PLAIN" => {
