@@ -411,7 +411,7 @@ impl<'a> SmtpTransport {
 
                 let client = std::mem::replace(&mut self.client, InnerClient::default());
                 let ssl_client = client.upgrade_tls_stream(tls_parameters).await?;
-                std::mem::replace(&mut self.client, ssl_client);
+                self.client = ssl_client;
 
                 debug!("connection encrypted");
 
