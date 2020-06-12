@@ -1,5 +1,5 @@
 use async_smtp::smtp::authentication::Credentials;
-use async_smtp::{EmailAddress, Envelope, SendableEmail, SmtpClient, Transport};
+use async_smtp::{EmailAddress, Envelope, SendableEmail, SmtpClient};
 
 fn main() {
     async_std::task::block_on(async move {

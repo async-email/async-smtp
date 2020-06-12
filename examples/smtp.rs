@@ -1,4 +1,4 @@
-use async_smtp::{EmailAddress, Envelope, SendableEmail, SmtpClient, Transport};
+use async_smtp::{EmailAddress, Envelope, SendableEmail, SmtpClient};
 
 fn main() {
     env_logger::init();
