@@ -117,14 +117,12 @@ impl<S: Connector + Write + Read + Unpin> InnerClient<S> {
             None => return_err!("Could not resolve hostname", self),
         };
 
-        self.connect_with_stream(Connector::connect(&server_addr, timeout, tls_parameters).await?).await
+        self.connect_with_stream(Connector::connect(&server_addr, timeout, tls_parameters).await?)
+            .await
     }
 
     /// Connects to a pre-defined stream
-    pub async fn connect_with_stream(
-        &mut self,
-        stream: S
-    ) -> Result<(), Error> {
+    pub async fn connect_with_stream(&mut self, stream: S) -> Result<(), Error> {
         // Connect should not be called when the client is already connected
         if self.stream.is_some() {
             return_err!("The connection is already established", self);

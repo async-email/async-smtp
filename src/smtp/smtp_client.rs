@@ -330,9 +330,7 @@ impl<'a> SmtpTransport {
 
         {
             let mut client = Pin::new(&mut self.client);
-            client
-                .connect_with_stream(stream)
-                .await?;
+            client.connect_with_stream(stream).await?;
 
             client.set_timeout(self.client_info.timeout);
             let _response = client.read_response().await?;
