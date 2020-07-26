@@ -3,7 +3,7 @@
 //! It can be useful for testing purposes, or if you want to keep track of sent messages.
 //!
 
-use std::path::PathBuf;
+use std::{path::PathBuf, time::Duration};
 
 use async_std::fs::File;
 use async_std::path::Path;
@@ -69,5 +69,13 @@ impl<'a> Transport<'a> for FileTransport {
             .write_all(serialized.as_bytes())
             .await?;
         Ok(())
+    }
+
+    async fn send_with_timeout(
+        &mut self,
+        email: SendableEmail,
+        _timeout: Option<&Duration>,
+    ) -> Self::Result {
+        self.send(email).await // Writing to a file does not have a timeout, so just ignore it.
     }
 }

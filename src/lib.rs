@@ -33,6 +33,7 @@ pub use crate::smtp::client::net::ClientTlsParameters;
 pub use crate::smtp::{ClientSecurity, SmtpClient, SmtpTransport};
 
 use async_trait::async_trait;
+use std::time::Duration;
 
 /// Transport method for emails
 #[async_trait]
@@ -42,4 +43,10 @@ pub trait Transport<'a> {
 
     /// Sends the email
     async fn send(&mut self, email: SendableEmail) -> Self::Result;
+
+    async fn send_with_timeout(
+        &mut self,
+        email: SendableEmail,
+        timeout: Option<&Duration>,
+    ) -> Self::Result;
 }
