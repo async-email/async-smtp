@@ -42,7 +42,7 @@ jobs:
       uses: actions-rs/cargo@v1
       with:
         command: test
-        args: --all
+        args: --all --no-default-features --features file-transport smtp-transport
 
   check_fmt_and_docs:
     name: Checking fmt and docs
