@@ -306,8 +306,10 @@ impl<'a> SmtpTransport {
                 .await?;
 
             client.set_timeout(self.client_info.timeout);
-            let timeout = client.timeout().cloned();
-            let _response = client.read_response(timeout.as_ref()).await?;
+            let _response = super::client::with_timeout(self.client_info.timeout.as_ref(), async {
+                client.read_response().await
+            })
+            .await?;
         }
 
         self.post_connect().await
