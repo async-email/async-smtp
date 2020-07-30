@@ -191,7 +191,7 @@ impl<S: Connector + Write + Read + Unpin> InnerClient<S> {
             codec.encode(&message_bytes, &mut stream).await?;
             stream.write_all(b"\r\n.\r\n").await?;
 
-            self.read_response().await
+            self.read_response_no_timeout().await
         })
         .await
     }
@@ -209,7 +209,7 @@ impl<S: Connector + Write + Read + Unpin> InnerClient<S> {
     ) -> SmtpResult {
         with_timeout(timeout, async {
             self.as_mut().write(command.to_string().as_bytes()).await?;
-            let res = self.read_response().await?;
+            let res = self.read_response_no_timeout().await?;
 
             Ok(res)
         })
@@ -236,7 +236,12 @@ impl<S: Connector + Write + Read + Unpin> InnerClient<S> {
     }
 
     /// Read an SMTP response from the wire.
-    pub async fn read_response(mut self: Pin<&mut Self>) -> SmtpResult {
+    pub async fn read_response(self: Pin<&mut Self>) -> SmtpResult {
+        let timeout = self.timeout;
+        with_timeout(timeout.as_ref(), self.read_response_no_timeout()).await
+    }
+
+    async fn read_response_no_timeout(mut self: Pin<&mut Self>) -> SmtpResult {
         let this = self.as_mut().project();
         let stream = this.stream.as_pin_mut().ok_or(Error::NoStream)?;
 
