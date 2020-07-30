@@ -8,8 +8,7 @@
     unstable_features,
     unused_import_braces,
     missing_debug_implementations,
-    clippy::result_unwrap_used,
-    clippy::option_unwrap_used
+    clippy::unwrap_used
 )]
 
 pub mod error;

@@ -9,7 +9,6 @@ use async_std::fs::File;
 use async_std::path::Path;
 use async_std::prelude::*;
 use async_trait::async_trait;
-use serde_json;
 
 use crate::file::error::FileResult;
 use crate::Envelope;

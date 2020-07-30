@@ -133,7 +133,7 @@ impl ServerInfo {
             }
 
             let split: Vec<&str> = line.split_whitespace().collect();
-            match split.get(0).map(|s| *s) {
+            match split.get(0).copied() {
                 Some("8BITMIME") => {
                     features.insert(Extension::EightBitMime);
                 }

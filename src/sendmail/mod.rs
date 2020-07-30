@@ -40,7 +40,7 @@ impl SendmailTransport {
     }
 }
 
-#[allow(clippy::option_unwrap_used)]
+#[allow(clippy::unwrap_used)]
 #[async_trait]
 impl<'a> Transport<'a> for SendmailTransport {
     type Result = SendmailResult;
