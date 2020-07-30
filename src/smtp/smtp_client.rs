@@ -407,7 +407,7 @@ impl<'a> SmtpTransport {
                     try_smtp!(client.command(StarttlsCommand).await, self);
                 }
 
-                let client = std::mem::replace(&mut self.client, InnerClient::default());
+                let client = std::mem::take(&mut self.client);
                 let ssl_client = client.upgrade_tls_stream(tls_parameters).await?;
                 self.client = ssl_client;
 
@@ -552,11 +552,7 @@ impl<'a> Transport<'a> for SmtpTransport {
                 "{}: conn_use={}, status=sent ({})",
                 message_id,
                 self.state.connection_reuse_count,
-                result
-                    .message
-                    .iter()
-                    .next()
-                    .unwrap_or(&"no response".to_string())
+                result.message.get(0).unwrap_or(&"no response".to_string())
             );
         }
 
