@@ -7,6 +7,7 @@ use log::info;
 
 use crate::SendableEmail;
 use crate::Transport;
+use std::time::Duration;
 
 /// This transport logs the message envelope and returns the given response
 #[derive(Debug, Clone, Copy)]
@@ -44,5 +45,13 @@ impl<'a> Transport<'a> for StubTransport {
             email.envelope().to()
         );
         self.response
+    }
+    async fn send_with_timeout(
+        &mut self,
+        email: SendableEmail,
+        timeout: Option<&Duration>,
+    ) -> Self::Result {
+        info!("Timeout: {:?}", timeout);
+        self.send(email).await
     }
 }

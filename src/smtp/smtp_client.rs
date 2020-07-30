@@ -306,7 +306,10 @@ impl<'a> SmtpTransport {
                 .await?;
 
             client.set_timeout(self.client_info.timeout);
-            let _response = client.read_response().await?;
+            let _response = super::client::with_timeout(self.client_info.timeout.as_ref(), async {
+                client.read_response().await
+            })
+            .await?;
         }
 
         self.post_connect().await
@@ -498,6 +501,15 @@ impl<'a> Transport<'a> for SmtpTransport {
 
     /// Sends an email
     async fn send(&mut self, email: SendableEmail) -> SmtpResult {
+        let timeout = self.client.timeout().cloned();
+        self.send_with_timeout(email, timeout.as_ref()).await
+    }
+
+    async fn send_with_timeout(
+        &mut self,
+        email: SendableEmail,
+        timeout: Option<&Duration>,
+    ) -> Self::Result {
         let message_id = email.message_id().to_string();
 
         // Mail
@@ -516,10 +528,10 @@ impl<'a> Transport<'a> for SmtpTransport {
         try_smtp!(
             client
                 .as_mut()
-                .command(MailCommand::new(
-                    email.envelope().from().cloned(),
-                    mail_options,
-                ))
+                .command_with_timeout(
+                    MailCommand::new(email.envelope().from().cloned(), mail_options),
+                    timeout
+                )
                 .await,
             self
         );
@@ -529,7 +541,7 @@ impl<'a> Transport<'a> for SmtpTransport {
             try_smtp!(
                 client
                     .as_mut()
-                    .command(RcptCommand::new(to_address.clone(), vec![]))
+                    .command_with_timeout(RcptCommand::new(to_address.clone(), vec![]), timeout)
                     .await,
                 self
             );

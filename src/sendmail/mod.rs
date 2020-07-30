@@ -10,7 +10,10 @@ use async_trait::async_trait;
 use log::info;
 use std::convert::AsRef;
 use std::io::prelude::*;
-use std::process::{Command, Stdio};
+use std::{
+    process::{Command, Stdio},
+    time::Duration,
+};
 
 pub mod error;
 
@@ -84,9 +87,17 @@ impl<'a> Transport<'a> for SendmailTransport {
         .await?;
 
         if output.status.success() {
-            return Ok(());
+            Ok(())
+        } else {
+            Err(error::Error::Client(String::from_utf8(output.stderr)?))
         }
+    }
 
-        Err(error::Error::Client(String::from_utf8(output.stderr)?))
+    async fn send_with_timeout(
+        &mut self,
+        email: SendableEmail,
+        _timeout: Option<&Duration>,
+    ) -> Self::Result {
+        self.send(email).await
     }
 }

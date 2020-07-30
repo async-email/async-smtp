@@ -99,7 +99,7 @@ impl<S: Connector + Write + Read + Unpin> InnerClient<S> {
     }
 
     /// Get the read and write timeout.
-    pub fn timeout(&mut self) -> Option<&Duration> {
+    pub fn timeout(&self) -> Option<&Duration> {
         self.timeout.as_ref()
     }
 
@@ -172,35 +172,48 @@ impl<S: Connector + Write + Read + Unpin> InnerClient<S> {
 
     /// Sends the message content.
     pub async fn message<T: Read + Unpin>(mut self: Pin<&mut Self>, message: T) -> SmtpResult {
-        let mut codec = ClientCodec::new();
+        let timeout = self.timeout;
+        with_timeout(timeout.as_ref(), async {
+            let mut codec = ClientCodec::new();
+            let mut message_reader = BufReader::new(message);
 
-        let mut message_reader = BufReader::new(message);
+            let mut message_bytes = Vec::new();
+            message_reader.read_to_end(&mut message_bytes).await?;
 
-        let mut message_bytes = Vec::new();
-        message_reader.read_to_end(&mut message_bytes).await?;
+            if self.stream.is_none() {
+                return Err(From::from("Connection closed"));
+            }
+            let this = self.as_mut().project();
+            let _: Pin<&mut Option<S>> = this.stream;
 
-        if self.stream.is_none() {
-            return Err(From::from("Connection closed"));
-        }
-        let this = self.as_mut().project();
-        let _: Pin<&mut Option<S>> = this.stream;
+            let mut stream = this.stream.as_pin_mut().ok_or(Error::NoStream)?;
 
-        let mut stream = this.stream.as_pin_mut().ok_or(Error::NoStream)?;
-
-        with_timeout(this.timeout.as_ref(), async move {
             codec.encode(&message_bytes, &mut stream).await?;
             stream.write_all(b"\r\n.\r\n").await?;
-            Ok(())
-        })
-        .await?;
 
-        self.read_response().await
+            self.read_response_no_timeout().await
+        })
+        .await
     }
 
     /// Send the given SMTP command to the server.
-    pub async fn command<C: Display>(mut self: Pin<&mut Self>, command: C) -> SmtpResult {
-        self.as_mut().write(command.to_string().as_bytes()).await?;
-        self.read_response().await
+    pub async fn command<C: Display>(self: Pin<&mut Self>, command: C) -> SmtpResult {
+        let timeout = self.timeout;
+        self.command_with_timeout(command, timeout.as_ref()).await
+    }
+
+    pub async fn command_with_timeout<C: Display>(
+        mut self: Pin<&mut Self>,
+        command: C,
+        timeout: Option<&Duration>,
+    ) -> SmtpResult {
+        with_timeout(timeout, async {
+            self.as_mut().write(command.to_string().as_bytes()).await?;
+            let res = self.read_response_no_timeout().await?;
+
+            Ok(res)
+        })
+        .await
     }
 
     /// Writes the given data to the server.
@@ -212,12 +225,8 @@ impl<S: Connector + Write + Read + Unpin> InnerClient<S> {
         let _: Pin<&mut Option<S>> = this.stream;
         let mut stream = this.stream.as_pin_mut().ok_or(Error::NoStream)?;
 
-        with_timeout(this.timeout.as_ref(), async move {
-            stream.write_all(string).await?;
-            stream.flush().await?;
-            Ok(())
-        })
-        .await?;
+        stream.write_all(string).await?;
+        stream.flush().await?;
 
         debug!(
             ">> {}",
@@ -227,7 +236,12 @@ impl<S: Connector + Write + Read + Unpin> InnerClient<S> {
     }
 
     /// Read an SMTP response from the wire.
-    pub async fn read_response(mut self: Pin<&mut Self>) -> SmtpResult {
+    pub async fn read_response(self: Pin<&mut Self>) -> SmtpResult {
+        let timeout = self.timeout;
+        with_timeout(timeout.as_ref(), self.read_response_no_timeout()).await
+    }
+
+    async fn read_response_no_timeout(mut self: Pin<&mut Self>) -> SmtpResult {
         let this = self.as_mut().project();
         let stream = this.stream.as_pin_mut().ok_or(Error::NoStream)?;
 
@@ -235,7 +249,7 @@ impl<S: Connector + Write + Read + Unpin> InnerClient<S> {
         let mut buffer = String::with_capacity(100);
 
         loop {
-            let read = with_timeout(this.timeout.as_ref(), reader.read_line(&mut buffer)).await?;
+            let read = reader.read_line(&mut buffer).await?;
             if read == 0 {
                 break;
             }
@@ -263,17 +277,20 @@ impl<S: Connector + Write + Read + Unpin> InnerClient<S> {
 }
 
 /// Execute io operations with an optional timeout using.
-async fn with_timeout<T, F>(timeout: Option<&Duration>, f: F) -> Result<T, Error>
+pub(crate) async fn with_timeout<T, F, E>(
+    timeout: Option<&Duration>,
+    f: F,
+) -> std::result::Result<T, E>
 where
-    F: Future<Output = async_std::io::Result<T>>,
+    F: Future<Output = std::result::Result<T, E>>,
+    E: From<async_std::future::TimeoutError>,
 {
-    let r = if let Some(timeout) = timeout {
-        async_std::io::timeout(*timeout, f).await?
+    if let Some(timeout) = timeout {
+        let res = async_std::future::timeout(*timeout, f).await??;
+        Ok(res)
     } else {
-        f.await?
-    };
-
-    Ok(r)
+        f.await
+    }
 }
 
 #[cfg(test)]
