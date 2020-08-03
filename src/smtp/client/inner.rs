@@ -207,13 +207,8 @@ impl<S: Connector + Write + Read + Unpin> InnerClient<S> {
         command: C,
         timeout: Option<&Duration>,
     ) -> SmtpResult {
-        with_timeout(timeout, async {
-            self.as_mut().write(command.to_string().as_bytes()).await?;
-            let res = self.read_response_no_timeout().await?;
-
-            Ok(res)
-        })
-        .await
+        with_timeout(timeout, self.as_mut().write(command.to_string().as_bytes())).await?;
+        with_timeout(timeout, self.read_response_no_timeout()).await
     }
 
     /// Writes the given data to the server.
