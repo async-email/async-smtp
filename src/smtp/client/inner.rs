@@ -171,29 +171,35 @@ impl<S: Connector + Write + Read + Unpin> InnerClient<S> {
     }
 
     /// Sends the message content.
-    pub async fn message<T: Read + Unpin>(mut self: Pin<&mut Self>, message: T) -> SmtpResult {
-        let timeout = self.timeout;
-        with_timeout(timeout.as_ref(), async {
-            let mut codec = ClientCodec::new();
-            let mut message_reader = BufReader::new(message);
+    pub(crate) async fn message_with_timeout<T: Read + Unpin>(
+        mut self: Pin<&mut Self>,
+        message: T,
+        timeout: Option<&Duration>,
+    ) -> SmtpResult {
+        let mut codec = ClientCodec::new();
 
-            let mut message_bytes = Vec::new();
-            message_reader.read_to_end(&mut message_bytes).await?;
+        let mut message_reader = BufReader::new(message);
 
-            if self.stream.is_none() {
-                return Err(From::from("Connection closed"));
-            }
-            let this = self.as_mut().project();
-            let _: Pin<&mut Option<S>> = this.stream;
+        let mut message_bytes = Vec::new();
+        message_reader.read_to_end(&mut message_bytes).await?;
 
-            let mut stream = this.stream.as_pin_mut().ok_or(Error::NoStream)?;
+        if self.stream.is_none() {
+            return Err(From::from("Connection closed"));
+        }
+        let this = self.as_mut().project();
+        let _: Pin<&mut Option<S>> = this.stream;
 
+        let mut stream = this.stream.as_pin_mut().ok_or(Error::NoStream)?;
+
+        let res: Result<(), Error> = with_timeout(timeout, async {
             codec.encode(&message_bytes, &mut stream).await?;
             stream.write_all(b"\r\n.\r\n").await?;
-
-            self.read_response_no_timeout().await
+            Ok(())
         })
-        .await
+        .await;
+        res?;
+
+        with_timeout(timeout, self.read_response_no_timeout()).await
     }
 
     /// Send the given SMTP command to the server.

@@ -552,7 +552,10 @@ impl<'a> Transport<'a> for SmtpTransport {
         // Data
         try_smtp!(client.as_mut().command(DataCommand).await, self);
 
-        let res = client.as_mut().message(email.message()).await;
+        let res = client
+            .as_mut()
+            .message_with_timeout(email.message(), timeout)
+            .await;
 
         // Message content
         if let Ok(result) = &res {
