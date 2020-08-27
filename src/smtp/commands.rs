@@ -335,6 +335,7 @@ mod test {
     #[test]
     fn test_display() {
         let id = ClientId::Domain("localhost".to_string());
+        let id_ipv4 = ClientId::Ipv4(std::net::Ipv4Addr::new(127, 0, 0, 1));
         let email = EmailAddress::new("test@example.com".to_string()).unwrap();
         let mail_parameter = MailParameter::Other {
             keyword: "TEST".to_string(),
@@ -345,6 +346,10 @@ mod test {
             value: Some("value".to_string()),
         };
         assert_eq!(format!("{}", EhloCommand::new(id)), "EHLO localhost\r\n");
+        assert_eq!(
+            format!("{}", EhloCommand::new(id_ipv4)),
+            "EHLO [127.0.0.1]\r\n"
+        );
         assert_eq!(
             format!("{}", MailCommand::new(Some(email.clone()), vec![])),
             "MAIL FROM:<test@example.com>\r\n"

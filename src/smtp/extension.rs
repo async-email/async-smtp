@@ -10,8 +10,12 @@ use std::fmt::{self, Display, Formatter};
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::result::Result;
 
-/// Default client id
-const DEFAULT_DOMAIN_CLIENT_ID: &str = "localhost";
+/// Default client id.
+///
+/// It passes
+/// `smtpd_helo_restrictions = reject_non_fqdn_helo_hostname`
+/// Postfix check, but not `reject_unknown_helo_hostname`.
+const DEFAULT_DOMAIN_CLIENT_ID: &str = "localhost.localdomain";
 
 /// Client identifier, the parameter to `EHLO`
 #[derive(PartialEq, Eq, Clone, Debug)]
@@ -28,12 +32,26 @@ pub enum ClientId {
     Ipv6(Ipv6Addr),
 }
 
+impl Default for ClientId {
+    fn default() -> Self {
+        // The most compatible address.
+        //
+        // It passes Postfix checks
+        // ```
+        // smtpd_helo_restrictions = reject_invalid_helo_hostname, reject_non_fqdn_helo_hostname, reject_unknown_helo_hostname
+        // smtpd_helo_required = yes
+        // smtpd_delay_reject = no
+        // ```
+        Self::Ipv4(Ipv4Addr::new(127, 0, 0, 1))
+    }
+}
+
 impl Display for ClientId {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match *self {
             ClientId::Domain(ref value) => f.write_str(value),
-            ClientId::Ipv4(ref value) => write!(f, "{}", value),
-            ClientId::Ipv6(ref value) => write!(f, "{}", value),
+            ClientId::Ipv4(ref value) => write!(f, "[{}]", value),
+            ClientId::Ipv6(ref value) => write!(f, "[IPv6:{}]", value),
         }
     }
 }
@@ -44,8 +62,8 @@ impl ClientId {
         ClientId::Domain(domain)
     }
 
-    /// Defines a `ClientId` with the current hostname, of `localhost` if hostname could not be
-    /// found
+    /// Defines a `ClientId` with the current hostname, or
+    /// `localhost.localdomain` if hostname could not be found.
     pub fn hostname() -> ClientId {
         ClientId::Domain(get_hostname().unwrap_or_else(|| DEFAULT_DOMAIN_CLIENT_ID.to_string()))
     }
