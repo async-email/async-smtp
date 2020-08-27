@@ -49,6 +49,9 @@
 ## Example
 
 ```rust
+pub type Error = Box<dyn std::error::Error + Send + Sync>;
+pub type Result<T> = std::result::Result<T, Error>;
+
 use async_smtp::{
     ClientSecurity, Envelope, SendableEmail, SmtpClient, Transport,
 };
@@ -64,7 +67,7 @@ async fn smtp_transport_simple() -> Result<()> {
     );
 
     // Create a client
-    let smtp = SmtpClient::new("127.0.0.1:2525").await?.into_transport();
+    let mut smtp = SmtpClient::new("127.0.0.1:2525").await?.into_transport();
 
     // Connect and send the email.
     smtp.send(email).await?;
