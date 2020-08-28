@@ -40,6 +40,14 @@ use std::time::Duration;
 pub trait Transport<'a> {
     /// Result type for the transport
     type Result;
+    type StreamResult;
+
+    /// Start sending e-mail andreturn a stream to write the body to
+    async fn send_stream(
+        &mut self,
+        email: SendableEmailWithoutBody,
+        timeout: Option<&Duration>,
+    ) -> Self::StreamResult;
 
     /// Sends the email
     async fn send(&mut self, email: SendableEmail) -> Self::Result;

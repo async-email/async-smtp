@@ -175,3 +175,26 @@ impl SendableEmail {
         Ok(message_content)
     }
 }
+
+/// Sendable email structure without body
+#[allow(missing_debug_implementations)]
+pub struct SendableEmailWithoutBody {
+    envelope: Envelope,
+    message_id: String,
+}
+impl SendableEmailWithoutBody {
+    pub fn new<S: AsRef<str>>(envelope: Envelope, message_id: S) -> Self {
+        Self {
+            envelope,
+            message_id: message_id.as_ref().into(),
+        }
+    }
+
+    pub fn envelope(&self) -> &Envelope {
+        &self.envelope
+    }
+
+    pub fn message_id(&self) -> &str {
+        &self.message_id
+    }
+}

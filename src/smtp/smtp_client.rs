@@ -1,11 +1,14 @@
-use std::fmt::Display;
-use std::time::Duration;
-
+use async_std::io::{Read, Write};
 use async_std::net::{SocketAddr, ToSocketAddrs};
 use async_std::pin::Pin;
 use async_trait::async_trait;
+use futures::channel::oneshot::{channel as oneshot, Receiver, Sender};
+use futures::Future;
 use log::{debug, info};
 use pin_project::pin_project;
+use std::fmt::Display;
+use std::ops::DerefMut;
+use std::time::Duration;
 
 use crate::smtp::authentication::{
     Credentials, Mechanism, DEFAULT_ENCRYPTED_MECHANISMS, DEFAULT_UNENCRYPTED_MECHANISMS,
@@ -17,7 +20,7 @@ use crate::smtp::client::InnerClient;
 use crate::smtp::commands::*;
 use crate::smtp::error::{Error, SmtpResult};
 use crate::smtp::extension::{ClientId, Extension, MailBodyParameter, MailParameter, ServerInfo};
-use crate::{SendableEmail, Transport};
+use crate::{SendableEmail, SendableEmailWithoutBody, Transport};
 
 // Registered port numbers:
 // https://www.iana.
@@ -205,8 +208,6 @@ impl SmtpClient {
 struct State {
     /// Panic state
     pub panic: bool,
-    /// Connection reuse counter
-    pub connection_reuse_count: u16,
 }
 
 /// Structure that implements the high level SMTP client
@@ -221,8 +222,7 @@ pub struct SmtpTransport {
     /// Information about the client
     client_info: SmtpClient,
     /// Low level client
-    #[pin]
-    client: InnerClient,
+    client: Potential<InnerClient>,
 }
 
 macro_rules! try_smtp (
@@ -246,19 +246,24 @@ impl<'a> SmtpTransport {
     /// It does not connect to the server, but only creates the `SmtpTransport`
     pub fn new(builder: SmtpClient) -> SmtpTransport {
         SmtpTransport {
-            client: InnerClient::new(),
+            client: Potential::present(InnerClient::new(builder.connection_reuse)),
             server_info: None,
             client_info: builder,
-            state: State {
-                panic: false,
-                connection_reuse_count: 0,
-            },
+            state: State { panic: false },
         }
+    }
+
+    /// Borrow the inner client mutably in a Pin if available.
+    /// reutns `Error::NoStream` ifnot available
+    async fn client(&mut self) -> Result<Pin<&mut InnerClient>, Error> {
+        Ok(Pin::new(self.client.as_mut().await.ok_or(Error::NoStream)?))
     }
 
     /// Returns true if there is currently an established connection.
     pub fn is_connected(&self) -> bool {
-        self.client.is_connected()
+        self.client
+            .map_present(InnerClient::is_connected)
+            .unwrap_or_default()
     }
 
     /// Operations to perform right after the connection has been established
@@ -270,21 +275,27 @@ impl<'a> SmtpTransport {
 
         self.try_tls().await?;
 
-        if self.client_info.credentials.is_some() {
-            self.try_login().await?;
-        }
+        self.try_login().await?;
 
         Ok(())
     }
 
     /// Try to connect, if not already connected.
     pub async fn connect(&mut self) -> Result<(), Error> {
-        // Check if the connection is still available
-        if (self.state.connection_reuse_count > 0) && (!self.client.is_connected()) {
+        // Check if the connection is alreadyset up and still available
+        if self
+            .client
+            .map_present(|c| !c.can_be_reused())
+            .unwrap_or_default()
+        {
             self.close().await?;
         }
 
-        if self.state.connection_reuse_count > 0 {
+        if self
+            .client
+            .map_present(|c| c.has_been_used())
+            .unwrap_or_default()
+        {
             debug!(
                 "connection already established to {}",
                 self.client_info.server_addr
@@ -292,25 +303,26 @@ impl<'a> SmtpTransport {
             return Ok(());
         }
 
-        {
-            let mut client = Pin::new(&mut self.client);
-            client
-                .connect(
-                    &self.client_info.server_addr,
-                    self.client_info.timeout,
-                    match self.client_info.security {
-                        ClientSecurity::Wrapper(ref tls_parameters) => Some(tls_parameters),
-                        _ => None,
-                    },
-                )
-                .await?;
+        let mut client = self.client.lease().await.ok_or(Error::NoStream)?;
+        let mut client = Pin::new(client.deref_mut());
 
-            client.set_timeout(self.client_info.timeout);
-            let _response = super::client::with_timeout(self.client_info.timeout.as_ref(), async {
-                client.read_response().await
-            })
+        client
+            .as_mut()
+            .connect(
+                &self.client_info.server_addr,
+                self.client_info.timeout,
+                match self.client_info.security {
+                    ClientSecurity::Wrapper(ref tls_parameters) => Some(tls_parameters),
+                    _ => None,
+                },
+            )
             .await?;
-        }
+
+        client.set_timeout(self.client_info.timeout);
+        let _response = super::client::with_timeout(self.client_info.timeout.as_ref(), async {
+            client.as_mut().read_response().await
+        })
+        .await?;
 
         self.post_connect().await
     }
@@ -319,11 +331,11 @@ impl<'a> SmtpTransport {
     #[cfg(feature = "socks5")]
     pub async fn connect_with_stream(&mut self, stream: NetworkStream) -> Result<(), Error> {
         // Check if the connection is still available
-        if (self.state.connection_reuse_count > 0) && (!self.client.is_connected()) {
+        if (self.client.connection_reuse_count > 0) && (!self.client.is_connected()) {
             self.close().await?;
         }
 
-        if self.state.connection_reuse_count > 0 {
+        if self.client.connection_reuse_count > 0 {
             debug!(
                 "connection already established to {}",
                 self.client_info.server_addr
@@ -343,7 +355,12 @@ impl<'a> SmtpTransport {
     }
 
     async fn try_login(&mut self) -> Result<(), Error> {
-        let client = Pin::new(&mut self.client);
+        if self.client_info.credentials.is_none() {
+            return Ok(());
+        }
+
+        let mut client = self.client.lease().await.ok_or(Error::NoStream)?;
+        let mut client = Pin::new(client.deref_mut());
         let mut found = false;
 
         if !self.client_info.force_set_auth {
@@ -367,8 +384,6 @@ impl<'a> SmtpTransport {
                 return Err(Error::NoServerInfo);
             }
         } else {
-            let mut client = Pin::new(&mut self.client);
-
             if let Some(mechanisms) = self.client_info.authentication_mechanism.as_ref() {
                 for mechanism in mechanisms {
                     if let Some(credentials) = &self.client_info.credentials {
@@ -389,30 +404,29 @@ impl<'a> SmtpTransport {
     }
 
     async fn try_tls(&mut self) -> Result<(), Error> {
-        let server_info = self
-            .server_info
-            .as_ref()
-            .ok_or_else(|| Error::NoServerInfo)?;
+        let server_info = self.server_info.as_ref().ok_or(Error::NoServerInfo)?;
+        let mut client = self.client.lease().await.ok_or(Error::NoStream)?;
         match (
             &self.client_info.security,
             server_info.supports_feature(Extension::StartTls),
         ) {
-            (&ClientSecurity::Required(_), false) => {
+            (ClientSecurity::Required(_), false) => {
                 Err(From::from("Could not encrypt connection, aborting"))
             }
-            (&ClientSecurity::Opportunistic(_), false) => Ok(()),
-            (&ClientSecurity::None, _) => Ok(()),
-            (&ClientSecurity::Wrapper(_), _) => Ok(()),
-            (&ClientSecurity::Opportunistic(ref tls_parameters), true)
-            | (&ClientSecurity::Required(ref tls_parameters), true) => {
+            (ClientSecurity::Opportunistic(_), false)
+            | (ClientSecurity::None, _)
+            | (ClientSecurity::Wrapper(_), _) => Ok(()),
+            (ClientSecurity::Opportunistic(ref tls_parameters), true)
+            | (ClientSecurity::Required(ref tls_parameters), true) => {
                 {
-                    let client = Pin::new(&mut self.client);
-                    try_smtp!(client.command(StarttlsCommand).await, self);
+                    try_smtp!(
+                        Pin::new(client.deref_mut()).command(StarttlsCommand).await,
+                        self
+                    );
                 }
-
-                let client = std::mem::take(&mut self.client);
-                let ssl_client = client.upgrade_tls_stream(tls_parameters).await?;
-                self.client = ssl_client;
+                client
+                    .replace(|c| c.upgrade_tls_stream(tls_parameters))
+                    .await?;
 
                 debug!("connection encrypted");
 
@@ -424,9 +438,7 @@ impl<'a> SmtpTransport {
 
     /// Send the given SMTP command to the server.
     pub async fn command<C: Display>(&mut self, command: C) -> SmtpResult {
-        let mut client = Pin::new(&mut self.client);
-
-        client.as_mut().command(command).await
+        self.client().await?.command(command).await
     }
 
     /// Gets the EHLO response and updates server information.
@@ -452,15 +464,12 @@ impl<'a> SmtpTransport {
 
     /// Reset the client state and close the connection.
     pub async fn close(&mut self) -> Result<(), Error> {
-        let client = Pin::new(&mut self.client);
-
         // Close the SMTP transaction if needed
-        client.close().await?;
+        self.client().await?.close().await?;
 
         // Reset the client state
         self.server_info = None;
         self.state.panic = false;
-        self.state.connection_reuse_count = 0;
 
         Ok(())
     }
@@ -470,22 +479,6 @@ impl<'a> SmtpTransport {
             .as_ref()
             .map(|info| info.supports_feature(keyword))
             .unwrap_or_default()
-    }
-
-    /// Called after sending out a message, to update the connection state.
-    async fn connection_was_used(&mut self) -> Result<(), Error> {
-        // Test if we can reuse the existing connection
-        match self.client_info.connection_reuse {
-            ConnectionReuseParameters::ReuseLimited(limit)
-                if self.state.connection_reuse_count >= limit =>
-            {
-                self.close().await?;
-            }
-            ConnectionReuseParameters::NoReuse => self.close().await?,
-            _ => (),
-        }
-
-        Ok(())
     }
 
     /// Try to connect and then send a message.
@@ -499,19 +492,13 @@ impl<'a> SmtpTransport {
 impl<'a> Transport<'a> for SmtpTransport {
     type Result = SmtpResult;
 
-    /// Sends an email
-    async fn send(&mut self, email: SendableEmail) -> SmtpResult {
-        let timeout = self.client.timeout().cloned();
-        self.send_with_timeout(email, timeout.as_ref()).await
-    }
+    type StreamResult = Result<SmtpStream, Error>;
 
-    async fn send_with_timeout(
+    async fn send_stream(
         &mut self,
-        email: SendableEmail,
+        email: SendableEmailWithoutBody,
         timeout: Option<&Duration>,
-    ) -> Self::Result {
-        let message_id = email.message_id().to_string();
-
+    ) -> Self::StreamResult {
         // Mail
         let mut mail_options = vec![];
 
@@ -523,7 +510,7 @@ impl<'a> Transport<'a> for SmtpTransport {
             mail_options.push(MailParameter::SmtpUtfEight);
         }
 
-        let mut client = Pin::new(&mut self.client);
+        let mut client = self.client().await?;
 
         try_smtp!(
             client
@@ -546,33 +533,219 @@ impl<'a> Transport<'a> for SmtpTransport {
                 self
             );
             // Log the rcpt command
-            debug!("{}: to=<{}>", message_id, to_address);
+            debug!("{}: to=<{}>", email.message_id(), to_address);
         }
 
         // Data
         try_smtp!(client.as_mut().command(DataCommand).await, self);
 
+        Ok(SmtpStream {
+            inner: self.client.lease().await.ok_or(Error::NoStream)?,
+        })
+    }
+
+    /// Sends an email
+    async fn send(&mut self, email: SendableEmail) -> SmtpResult {
+        let timeout = self.client.map_present(|c| c.timeout().cloned()).flatten();
+        self.send_with_timeout(email, timeout.as_ref()).await
+    }
+
+    async fn send_with_timeout(
+        &mut self,
+        email: SendableEmail,
+        timeout: Option<&Duration>,
+    ) -> SmtpResult {
+        let message_id = email.message_id().to_string();
+        let email_nobody =
+            SendableEmailWithoutBody::new(email.envelope().clone(), email.message_id().to_string());
+        self.send_stream(email_nobody, timeout).await?;
+
+        let mut client = self.client().await?;
         let res = client
             .as_mut()
             .message_with_timeout(email.message(), timeout)
             .await;
 
         // Message content
-        if let Ok(result) = &res {
-            // Increment the connection reuse counter
-            self.state.connection_reuse_count += 1;
-
+        if let Ok(ref result) = res {
             // Log the message
             debug!(
-                "{}: conn_use={}, status=sent ({})",
+                "{}: {}, status=sent ({})",
                 message_id,
-                self.state.connection_reuse_count,
+                client.debug_stats(),
                 result.message.get(0).unwrap_or(&"no response".to_string())
             );
         }
 
-        self.connection_was_used().await?;
+        if !client.reuse() {
+            self.close().await?;
+        }
 
         res
+    }
+}
+
+enum Potential<T> {
+    Present(T),
+    Eventual(Receiver<T>),
+    Gone,
+}
+impl<T> Potential<T> {
+    pub fn present(present: T) -> Self {
+        Potential::Present(present)
+    }
+    pub fn gone() -> Self {
+        Potential::Gone
+    }
+    pub fn eventual() -> (Sender<T>, Self) {
+        let (sender, receiver) = oneshot();
+        (sender, Potential::Eventual(receiver))
+    }
+    pub fn is_present(&self) -> bool {
+        match self {
+            Potential::Present(_) => true,
+            _ => false,
+        }
+    }
+    pub fn is_gone(&self) -> bool {
+        match self {
+            Potential::Gone => true,
+            _ => false,
+        }
+    }
+    pub fn is_eventual(&self) -> bool {
+        match self {
+            Potential::Eventual(_) => true,
+            _ => false,
+        }
+    }
+    pub async fn lease(&mut self) -> Option<Lease<T>> {
+        match self.take().await {
+            None => None,
+            Some(present) => {
+                let (sender, receiver) = oneshot();
+                *self = Potential::Eventual(receiver);
+                Some(Lease::new(present, sender))
+            }
+        }
+    }
+    pub async fn take(&mut self) -> Option<T> {
+        match std::mem::take(self) {
+            Potential::Gone => None,
+            Potential::Present(present) => Some(present),
+            Potential::Eventual(receiver) => receiver.await.ok(),
+        }
+    }
+    pub async fn as_mut(&mut self) -> Option<&mut T> {
+        match self {
+            Potential::Gone => None,
+            Potential::Present(ref mut present) => Some(present),
+            Potential::Eventual(ref mut receiver) => match receiver.await.ok() {
+                Some(present) => {
+                    *self = Potential::Present(present);
+                    if let Potential::Present(ref mut present) = self {
+                        Some(present)
+                    } else {
+                        unreachable!("self is Present")
+                    }
+                }
+                None => {
+                    *self = Potential::Gone;
+                    None
+                }
+            },
+        }
+    }
+    pub fn map_present<F, U>(&self, map: F) -> Option<U>
+    where
+        F: FnOnce(&T) -> U,
+    {
+        match self {
+            Potential::Present(ref t) => Some(map(t)),
+            Potential::Eventual(_) | Potential::Gone => None,
+        }
+    }
+}
+impl<T> Default for Potential<T> {
+    fn default() -> Self {
+        Potential::Gone
+    }
+}
+
+#[derive(Debug)]
+struct Lease<T>(Option<T>, Option<Sender<T>>);
+
+impl<T> Lease<T> {
+    fn new(item: T, owner: Sender<T>) -> Self {
+        Lease(Some(item), Some(owner))
+    }
+    async fn replace<F, Fut, E>(mut self, replacement: F) -> Result<Self, E>
+    where
+        F: FnOnce(T) -> Fut,
+        Fut: Future<Output = Result<T, E>>,
+    {
+        let item = self.0.take().expect("item must be set");
+        let item = replacement(item).await?;
+        self.0 = Some(item);
+        Ok(self)
+    }
+}
+impl<T> std::ops::Deref for Lease<T> {
+    type Target = T;
+    fn deref(&self) -> &Self::Target {
+        self.0.as_ref().expect("item must be set")
+    }
+}
+impl<T> std::ops::DerefMut for Lease<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.0.as_mut().expect("item must be set")
+    }
+}
+impl<T> Drop for Lease<T> {
+    fn drop(&mut self) {
+        // this may not hold after an error in replace()
+        debug_assert!(self.0.is_some(), "item must be set");
+        debug_assert!(self.1.is_some(), "owner must be set");
+        if let Some(item) = self.0.take() {
+            if let Some(owner) = self.1.take() {
+                owner.send(item);
+            }
+        }
+    }
+}
+#[allow(missing_debug_implementations)]
+pub struct SmtpStream {
+    inner: Lease<InnerClient>,
+}
+
+fn broken() -> std::io::Error {
+    std::io::Error::from(std::io::ErrorKind::NotConnected)
+}
+
+impl Write for SmtpStream {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<std::result::Result<usize, std::io::Error>> {
+        let stream = self.inner.deref_mut().stream.as_mut().ok_or(broken())?;
+        Pin::new(stream).poll_write(cx, buf)
+    }
+    fn poll_flush(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::result::Result<(), std::io::Error>> {
+        let stream = self.inner.deref_mut().stream.as_mut().ok_or(broken())?;
+        Pin::new(stream).poll_flush(cx)
+    }
+    fn poll_close(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::result::Result<(), std::io::Error>> {
+        // Defer close so that the connection can be reused.
+        // Lease will send the inner client back on drop.
+        //Pin::new(&mut self.inner).poll_close(cx)
+        let stream = self.inner.deref_mut().stream.as_mut().ok_or(broken())?;
+        Pin::new(stream).poll_flush(cx)
     }
 }

@@ -1,15 +1,14 @@
 //! The sendmail transport sends the email using the local sendmail command.
 //!
 
-use crate::sendmail::error::SendmailResult;
-use crate::SendableEmail;
+use crate::sendmail::error::{Error, SendmailResult};
 use crate::Transport;
+use crate::{SendableEmail, SendableEmailWithoutBody};
 
-use async_std::prelude::*;
 use async_trait::async_trait;
 use log::info;
 use std::convert::AsRef;
-use std::io::prelude::*;
+use std::process::Child;
 use std::{
     process::{Command, Stdio},
     time::Duration,
@@ -47,44 +46,57 @@ impl SendmailTransport {
 #[async_trait]
 impl<'a> Transport<'a> for SendmailTransport {
     type Result = SendmailResult;
+    type StreamResult = Result<Child, Error>;
 
-    async fn send(&mut self, email: SendableEmail) -> SendmailResult {
-        let message_id = email.message_id().to_string();
+    async fn send_stream(
+        &mut self,
+        email: SendableEmailWithoutBody,
+        _timeout: Option<&Duration>,
+    ) -> Self::StreamResult {
         let command = self.command.clone();
 
         let from = email
             .envelope()
             .from()
             .map(AsRef::as_ref)
-            .unwrap_or("\"\"")
+            .unwrap_or("\"\"") // Checkme: shouldthis be "<>"?
             .to_owned();
         let to = email.envelope().to().to_owned();
-        let mut message_content = String::new();
-        let _ = email.message().read_to_string(&mut message_content).await;
+
+        let child = Command::new(command)
+            .arg("-i")
+            .arg("-f")
+            .arg(from)
+            .args(to)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .map_err(Error::Io)?;
+
+        Ok(child)
+    }
+
+    async fn send(&mut self, email: SendableEmail) -> SendmailResult {
+        let email_nobody =
+            SendableEmailWithoutBody::new(email.envelope().clone(), email.message_id().to_string());
+
+        let mut child = self.send_stream(email_nobody, None).await?;
+        let message_id = email.message_id().to_string();
+        let msg = email.message_to_string().await?.into_bytes();
 
         // TODO: Convert to real async, once async-std has a process implementation.
         let output = async_std::task::spawn_blocking(move || {
-            // Spawn the sendmail command
-            let mut process = Command::new(command)
-                .arg("-i")
-                .arg("-f")
-                .arg(from)
-                .args(to)
-                .stdin(Stdio::piped())
-                .stdout(Stdio::piped())
-                .spawn()?;
-
-            process
+            let mut input = child
                 .stdin
                 .as_mut()
-                .unwrap()
-                .write_all(message_content.as_bytes())?;
-
-            info!("Wrote {} message to stdin", message_id);
-
-            process.wait_with_output()
+                .ok_or(Error::Client("Child process has no input".to_owned()))?;
+            // FixMe: avoid loading the whole message into memory
+            // in the absence of async process IO we can poll and shoufle bytes
+            std::io::copy(&mut &msg[..], &mut input)?;
+            child.wait_with_output().map_err(Error::Io)
         })
         .await?;
+        info!("Wrote {} message to stdin", message_id);
 
         if output.status.success() {
             Ok(())

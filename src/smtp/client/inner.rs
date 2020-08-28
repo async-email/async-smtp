@@ -1,13 +1,12 @@
-use std::fmt::{Debug, Display};
-use std::string::String;
-use std::time::Duration;
-
 use async_std::io::{self, BufReader, Read, Write};
 use async_std::net::ToSocketAddrs;
 use async_std::pin::Pin;
 use async_std::prelude::*;
 use log::debug;
 use pin_project::pin_project;
+use std::fmt::{Debug, Display};
+use std::string::String;
+use std::time::Duration;
 
 use crate::smtp::authentication::{Credentials, Mechanism};
 use crate::smtp::client::net::{ClientTlsParameters, Connector, NetworkStream};
@@ -15,6 +14,7 @@ use crate::smtp::client::ClientCodec;
 use crate::smtp::commands::*;
 use crate::smtp::error::{Error, SmtpResult};
 use crate::smtp::response::parse_response;
+use crate::smtp::smtp_client::ConnectionReuseParameters;
 
 /// Returns the string replacing all the CRLF with "\<CRLF\>"
 /// Used for debug displays
@@ -31,15 +31,10 @@ pub struct InnerClient<S: Write + Read = NetworkStream> {
     #[pin]
     pub(crate) stream: Option<S>,
     timeout: Option<Duration>,
-}
-
-impl<S: Write + Read> Default for InnerClient<S> {
-    fn default() -> Self {
-        InnerClient {
-            stream: None,
-            timeout: None,
-        }
-    }
+    /// Connection reuse counter
+    connection_reuse_count: u16,
+    /// Enable connection reuse
+    connection_reuse: ConnectionReuseParameters,
 }
 
 macro_rules! return_err (
@@ -48,21 +43,64 @@ macro_rules! return_err (
     })
 );
 
+impl<S: Write + Read> Default for InnerClient<S> {
+    fn default() -> Self {
+        InnerClient {
+            stream: None,
+            timeout: None,
+            connection_reuse_count: 0,
+            connection_reuse: ConnectionReuseParameters::NoReuse,
+        }
+    }
+}
+
 impl<S: Write + Read> InnerClient<S> {
     /// Creates a new SMTP client
     ///
     /// It does not connects to the server, but only creates the `Client`
-    pub fn new() -> InnerClient<S> {
-        InnerClient::default()
+    pub fn new(connection_reuse: ConnectionReuseParameters) -> InnerClient<S> {
+        InnerClient {
+            connection_reuse,
+            ..Default::default()
+        }
+    }
+    pub fn debug_stats(&self) -> String {
+        format! {"conn_use={}",self.connection_reuse_count}
+    }
+    /// Checks if the underlying server socket is connected
+    pub fn is_connected(&self) -> bool {
+        self.stream.is_some()
+    }
+    /// Checks if this is an ongoing connection, already set up
+    pub fn has_been_used(&self) -> bool {
+        self.connection_reuse_count != 0
+    }
+    /// Test if we can reuse the existing connection
+    pub fn can_be_reused(&self) -> bool {
+        if !self.is_connected() {
+            return false;
+        }
+        use ConnectionReuseParameters::*;
+        match self.connection_reuse {
+            ReuseUnlimited => true,
+            NoReuse if self.connection_reuse_count == 0 => true,
+            ReuseLimited(limit) if self.connection_reuse_count < limit => true,
+            _ => false,
+        }
+    }
+    /// The client is about to be reused, is it OK?
+    pub fn reuse(&mut self) -> bool {
+        self.connection_reuse_count += 1;
+        self.can_be_reused()
     }
 }
 
 impl<S: Connector + Write + Read + Unpin> InnerClient<S> {
     /// Closes the SMTP transaction if possible.
     pub async fn close(mut self: Pin<&mut Self>) -> Result<(), Error> {
+        self.connection_reuse_count = 0;
         self.as_mut().command(QuitCommand).await?;
         self.get_mut().stream = None;
-
         Ok(())
     }
 
@@ -80,6 +118,8 @@ impl<S: Connector + Write + Read + Unpin> InnerClient<S> {
             Some(stream) => Ok(InnerClient {
                 stream: Some(stream.upgrade_tls(tls_parameters).await?),
                 timeout: self.timeout,
+                connection_reuse_count: self.connection_reuse_count,
+                connection_reuse: self.connection_reuse,
             }),
             None => Ok(self),
         }
@@ -131,11 +171,6 @@ impl<S: Connector + Write + Read + Unpin> InnerClient<S> {
         // Try to connect
         self.set_stream(stream);
         Ok(())
-    }
-
-    /// Checks if the underlying server socket is connected
-    pub fn is_connected(&self) -> bool {
-        self.stream.is_some()
     }
 
     /// Sends an AUTH command with the given mechanism, and handles challenge if needed
