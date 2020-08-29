@@ -18,6 +18,7 @@ impl<T> Potential<T> {
     pub fn present(present: T) -> Self {
         Potential::Present(present)
     }
+    /*
     /// Create empty (gone) Potential
     pub fn gone() -> Self {
         Potential::Gone
@@ -48,6 +49,7 @@ impl<T> Potential<T> {
             _ => false,
         }
     }
+    */
     /// Wait for the return of the item and if available, lease it
     pub async fn lease(&mut self) -> Option<Lease<T>> {
         match self.take().await {

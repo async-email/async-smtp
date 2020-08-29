@@ -522,7 +522,7 @@ impl Write for SmtpStream {
                 }
                 otherwise @ SmtpStream::Encoding(_) | otherwise @ SmtpStream::Closing(_) => {
                     *self = otherwise;
-                    ready!(self.as_mut().poll_flush(cx));
+                    ready!(self.as_mut().poll_flush(cx))?;
                     continue;
                 }
                 otherwise @ SmtpStream::Done(_) | otherwise @ SmtpStream::Busy => {

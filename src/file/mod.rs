@@ -95,7 +95,7 @@ pub struct FileStream {
 impl MailStream for FileStream {
     type Output = ();
     type Error = Error;
-    fn result(mut self) -> FileResult {
+    fn result(self) -> FileResult {
         if self.closed {
             Ok(())
         } else {
