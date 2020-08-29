@@ -421,7 +421,10 @@ impl Write for SmtpStream {
                     let buf = Vec::from(buf);
                     let fut = async move {
                         codec
-                            .encode(&buf[..], inner.deref_mut().stream.as_mut().ok_or_else(broken)?)
+complaints                            .encode(
+                                &buf[..],
+                                inner.deref_mut().stream.as_mut().ok_or_else(broken)?,
+                            )
                             .await?;
                         Ok(SmtpStreamInner {
                             inner,
