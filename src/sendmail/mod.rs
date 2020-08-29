@@ -1,18 +1,18 @@
 //! The sendmail transport sends the email using the local sendmail command.
 //!
 
-use crate::sendmail::error::{Error, SendmailResult};
-use crate::Transport;
-use crate::{SendableEmail, SendableEmailWithoutBody};
-
+use async_std::io::Write;
+use async_std::task;
 use async_trait::async_trait;
 use log::info;
 use std::convert::AsRef;
-use std::process::Child;
-use std::{
-    process::{Command, Stdio},
-    time::Duration,
-};
+use std::pin::Pin;
+use std::process::{Child, Command, Stdio};
+use std::task::{Context, Poll};
+use std::time::Duration;
+
+use crate::sendmail::error::{Error, SendmailResult};
+use crate::{MailStream, SendableEmailWithoutBody, StreamingTransport};
 
 pub mod error;
 
@@ -44,16 +44,16 @@ impl SendmailTransport {
 
 #[allow(clippy::unwrap_used)]
 #[async_trait]
-impl<'a> Transport<'a> for SendmailTransport {
-    type Result = SendmailResult;
-    type StreamResult = Result<Child, Error>;
+impl StreamingTransport for SendmailTransport {
+    type StreamResult = Result<ProcStream, Error>;
 
-    async fn send_stream(
+    async fn send_stream_with_timeout(
         &mut self,
         email: SendableEmailWithoutBody,
         _timeout: Option<&Duration>,
     ) -> Self::StreamResult {
         let command = self.command.clone();
+        let message_id = email.message_id().to_string();
 
         let from = email
             .envelope()
@@ -73,30 +73,26 @@ impl<'a> Transport<'a> for SendmailTransport {
             .spawn()
             .map_err(Error::Io)?;
 
-        Ok(child)
+        Ok(ProcStream { child, message_id })
     }
+}
 
-    async fn send(&mut self, email: SendableEmail) -> SendmailResult {
-        let email_nobody =
-            SendableEmailWithoutBody::new(email.envelope().clone(), email.message_id().to_string());
+#[allow(missing_debug_implementations)]
+pub struct ProcStream {
+    child: Child,
+    message_id: String,
+}
 
-        let mut child = self.send_stream(email_nobody, None).await?;
-        let message_id = email.message_id().to_string();
-        let msg = email.message_to_string().await?.into_bytes();
+#[async_trait]
+impl MailStream for ProcStream {
+    type Output = ();
+    type Error = Error;
+    async fn done(self) -> SendmailResult {
+        let child = self.child;
+        let output =
+            task::spawn_blocking(move || child.wait_with_output().map_err(Error::Io)).await?;
 
-        // TODO: Convert to real async, once async-std has a process implementation.
-        let output = async_std::task::spawn_blocking(move || {
-            let mut input = child
-                .stdin
-                .as_mut()
-                .ok_or(Error::Client("Child process has no input".to_owned()))?;
-            // FixMe: avoid loading the whole message into memory
-            // in the absence of async process IO we can poll and shoufle bytes
-            std::io::copy(&mut &msg[..], &mut input)?;
-            child.wait_with_output().map_err(Error::Io)
-        })
-        .await?;
-        info!("Wrote {} message to stdin", message_id);
+        info!("Wrote {} message to stdin", self.message_id);
 
         if output.status.success() {
             Ok(())
@@ -104,12 +100,29 @@ impl<'a> Transport<'a> for SendmailTransport {
             Err(error::Error::Client(String::from_utf8(output.stderr)?))
         }
     }
+}
 
-    async fn send_with_timeout(
-        &mut self,
-        email: SendableEmail,
-        _timeout: Option<&Duration>,
-    ) -> Self::Result {
-        self.send(email).await
+/// Todo: async when available
+impl Write for ProcStream {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<std::io::Result<usize>> {
+        use std::io::Write;
+        let len = self.child.stdin.as_mut().ok_or(broken())?.write(buf)?;
+        Poll::Ready(Ok(len))
     }
+    fn poll_flush(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        use std::io::Write;
+        self.child.stdin.as_mut().ok_or(broken())?.flush()?;
+        Poll::Ready(Ok(()))
+    }
+    fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        self.poll_flush(cx)
+    }
+}
+
+fn broken() -> std::io::Error {
+    std::io::Error::from(std::io::ErrorKind::NotConnected)
 }

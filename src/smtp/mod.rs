@@ -19,6 +19,9 @@ pub mod error;
 pub mod extension;
 pub mod response;
 mod smtp_client;
+mod transport;
+mod potential;
 pub mod util;
 
 pub use smtp_client::*;
+pub use transport::*;

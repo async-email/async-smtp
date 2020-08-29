@@ -10,7 +10,6 @@ use std::time::Duration;
 
 use crate::smtp::authentication::{Credentials, Mechanism};
 use crate::smtp::client::net::{ClientTlsParameters, Connector, NetworkStream};
-use crate::smtp::client::ClientCodec;
 use crate::smtp::commands::*;
 use crate::smtp::error::{Error, SmtpResult};
 use crate::smtp::response::parse_response;
@@ -88,49 +87,25 @@ impl<S: Write + Read> InnerClient<S> {
             _ => false,
         }
     }
+
     /// The client is about to be reused, is it OK?
     pub fn reuse(&mut self) -> bool {
         self.connection_reuse_count += 1;
         self.can_be_reused()
     }
-}
 
-impl<S: Connector + Write + Read + Unpin> InnerClient<S> {
     /// Closes the SMTP transaction if possible.
     pub async fn close(mut self: Pin<&mut Self>) -> Result<(), Error> {
-        self.connection_reuse_count = 0;
         self.as_mut().command(QuitCommand).await?;
-        self.get_mut().stream = None;
+        let mut this = self.project();
+        *this.connection_reuse_count = 0;
+        this.stream.set(None);
         Ok(())
     }
 
     /// Sets the underlying stream.
     pub fn set_stream(&mut self, stream: S) {
         self.stream = Some(stream);
-    }
-
-    /// Upgrades the underlying connection to SSL/TLS.
-    pub async fn upgrade_tls_stream(
-        self,
-        tls_parameters: &ClientTlsParameters,
-    ) -> io::Result<Self> {
-        match self.stream {
-            Some(stream) => Ok(InnerClient {
-                stream: Some(stream.upgrade_tls(tls_parameters).await?),
-                timeout: self.timeout,
-                connection_reuse_count: self.connection_reuse_count,
-                connection_reuse: self.connection_reuse,
-            }),
-            None => Ok(self),
-        }
-    }
-
-    /// Tells if the underlying stream is currently encrypted
-    pub fn is_encrypted(&self) -> bool {
-        self.stream
-            .as_ref()
-            .map(|s| s.is_encrypted())
-            .unwrap_or(false)
     }
 
     /// Set read and write timeout.
@@ -141,24 +116,6 @@ impl<S: Connector + Write + Read + Unpin> InnerClient<S> {
     /// Get the read and write timeout.
     pub fn timeout(&self) -> Option<&Duration> {
         self.timeout.as_ref()
-    }
-
-    /// Connects to the configured server
-    pub async fn connect<A: ToSocketAddrs>(
-        &mut self,
-        addr: &A,
-        timeout: Option<Duration>,
-        tls_parameters: Option<&ClientTlsParameters>,
-    ) -> Result<(), Error> {
-        let mut addresses = addr.to_socket_addrs().await?;
-
-        let server_addr = match addresses.next() {
-            Some(addr) => addr,
-            None => return_err!("Could not resolve hostname", self),
-        };
-
-        self.connect_with_stream(Connector::connect(&server_addr, timeout, tls_parameters).await?)
-            .await
     }
 
     /// Connects to a pre-defined stream
@@ -205,38 +162,6 @@ impl<S: Connector + Write + Read + Unpin> InnerClient<S> {
         }
     }
 
-    /// Sends the message content.
-    pub(crate) async fn message_with_timeout<T: Read + Unpin>(
-        mut self: Pin<&mut Self>,
-        message: T,
-        timeout: Option<&Duration>,
-    ) -> SmtpResult {
-        let mut codec = ClientCodec::new();
-
-        let mut message_reader = BufReader::new(message);
-
-        let mut message_bytes = Vec::new();
-        message_reader.read_to_end(&mut message_bytes).await?;
-
-        if self.stream.is_none() {
-            return Err(From::from("Connection closed"));
-        }
-        let this = self.as_mut().project();
-        let _: Pin<&mut Option<S>> = this.stream;
-
-        let mut stream = this.stream.as_pin_mut().ok_or(Error::NoStream)?;
-
-        let res: Result<(), Error> = with_timeout(timeout, async {
-            codec.encode(&message_bytes, &mut stream).await?;
-            stream.write_all(b"\r\n.\r\n").await?;
-            Ok(())
-        })
-        .await;
-        res?;
-
-        with_timeout(timeout, self.read_response_no_timeout()).await
-    }
-
     /// Send the given SMTP command to the server.
     pub async fn command<C: Display>(self: Pin<&mut Self>, command: C) -> SmtpResult {
         let timeout = self.timeout;
@@ -271,13 +196,19 @@ impl<S: Connector + Write + Read + Unpin> InnerClient<S> {
         Ok(())
     }
 
-    /// Read an SMTP response from the wire.
+    pub async fn read_response_with_timeout(
+        self: Pin<&mut Self>,
+        timeout: Option<&Duration>,
+    ) -> SmtpResult {
+        with_timeout(timeout, self.read_response_no_timeout()).await
+    }
     pub async fn read_response(self: Pin<&mut Self>) -> SmtpResult {
         let timeout = self.timeout;
         with_timeout(timeout.as_ref(), self.read_response_no_timeout()).await
     }
 
-    async fn read_response_no_timeout(mut self: Pin<&mut Self>) -> SmtpResult {
+    /// Read an SMTP response from the wire.
+    pub async fn read_response_no_timeout(mut self: Pin<&mut Self>) -> SmtpResult {
         let this = self.as_mut().project();
         let stream = this.stream.as_pin_mut().ok_or(Error::NoStream)?;
 
@@ -312,11 +243,50 @@ impl<S: Connector + Write + Read + Unpin> InnerClient<S> {
     }
 }
 
+impl<S: Write + Read + Connector> InnerClient<S> {
+    /// Connects to the configured server
+    pub async fn connect<A: ToSocketAddrs>(
+        &mut self,
+        addr: &A,
+        timeout: Option<Duration>,
+        tls_parameters: Option<&ClientTlsParameters>,
+    ) -> Result<(), Error> {
+        let mut addresses = addr.to_socket_addrs().await?;
+
+        let server_addr = match addresses.next() {
+            Some(addr) => addr,
+            None => return_err!("Could not resolve hostname", self),
+        };
+
+        self.connect_with_stream(Connector::connect(&server_addr, timeout, tls_parameters).await?)
+            .await
+    }
+    /// Upgrades the underlying connection to SSL/TLS.
+    pub async fn upgrade_tls_stream(
+        self,
+        tls_parameters: &ClientTlsParameters,
+    ) -> io::Result<Self> {
+        match self.stream {
+            Some(stream) => Ok(InnerClient {
+                stream: Some(stream.upgrade_tls(tls_parameters).await?),
+                timeout: self.timeout,
+                connection_reuse_count: self.connection_reuse_count,
+                connection_reuse: self.connection_reuse,
+            }),
+            None => Ok(self),
+        }
+    }
+    /// Tells if the underlying stream is currently encrypted
+    pub fn is_encrypted(&self) -> bool {
+        self.stream
+            .as_ref()
+            .map(|s| s.is_encrypted())
+            .unwrap_or(false)
+    }
+}
+
 /// Execute io operations with an optional timeout using.
-pub(crate) async fn with_timeout<T, F, E>(
-    timeout: Option<&Duration>,
-    f: F,
-) -> std::result::Result<T, E>
+async fn with_timeout<T, F, E>(timeout: Option<&Duration>, f: F) -> std::result::Result<T, E>
 where
     F: Future<Output = std::result::Result<T, E>>,
     E: From<async_std::future::TimeoutError>,

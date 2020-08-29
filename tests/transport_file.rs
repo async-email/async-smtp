@@ -33,7 +33,7 @@ mod test {
 
         assert_eq!(
             buffer,
-            "{\"envelope\":{\"forward_path\":[\"root@localhost\"],\"reverse_path\":\"user@localhost\"},\"message_id\":\"id\",\"message\":[72,101,108,108,111,32,195,159,226,152,186,32,101,120,97,109,112,108,101]}"
+            "{\"envelope\":{\"forward_path\":[\"root@localhost\"],\"reverse_path\":\"user@localhost\"},\"message_id\":\"id\"}\nHello ß☺ example"
         );
 
         remove_file(file).unwrap();
