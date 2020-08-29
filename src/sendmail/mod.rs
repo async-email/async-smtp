@@ -87,7 +87,7 @@ impl StreamingTransport for SendmailTransport {
 pub enum ProcStream {
     Busy,
     Ready(ProcStreamInner),
-    Closing(Pin<Box<dyn Future<Output = SendmailResult> + Send>>),
+    Closing(Pin<Box<dyn Future<Output = SendmailResult> + Send + Sync>>),
     Done(SendmailResult),
 }
 

@@ -369,8 +369,8 @@ impl StreamingTransport for SmtpTransport {
 pub enum SmtpStream {
     Busy,
     Ready(SmtpStreamInner),
-    Encoding(Pin<Box<dyn Future<Output = std::io::Result<SmtpStreamInner>> + Send>>),
-    Closing(Pin<Box<dyn Future<Output = Result<Response, Error>> + Send>>),
+    Encoding(Pin<Box<dyn Future<Output = std::io::Result<SmtpStreamInner>> + Send + Sync>>),
+    Closing(Pin<Box<dyn Future<Output = Result<Response, Error>> + Send + Sync>>),
     Done(Result<Response, Error>),
 }
 #[allow(missing_debug_implementations)]
@@ -421,7 +421,7 @@ impl Write for SmtpStream {
                     let buf = Vec::from(buf);
                     let fut = async move {
                         codec
-complaints                            .encode(
+                            .encode(
                                 &buf[..],
                                 inner.deref_mut().stream.as_mut().ok_or_else(broken)?,
                             )
