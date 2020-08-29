@@ -76,6 +76,10 @@ impl StreamingTransport for FileTransport {
 
         Ok(FileStream { file })
     }
+    /// Get the default timeout for this transport
+    fn default_timeout(&self) -> Option<Duration> {
+        None
+    }
 }
 
 #[derive(Debug)]

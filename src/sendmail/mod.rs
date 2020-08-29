@@ -75,6 +75,10 @@ impl StreamingTransport for SendmailTransport {
 
         Ok(ProcStream { child, message_id })
     }
+    /// Get the default timeout for this transport
+    fn default_timeout(&self) -> Option<Duration> {
+        None
+    }
 }
 
 #[allow(missing_debug_implementations)]

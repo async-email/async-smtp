@@ -61,6 +61,10 @@ impl StreamingTransport for StubTransport {
             .ok_or(Error::Client("There's nothing left to say. Hug a tree..."))?;
         Ok(StubStream { response })
     }
+    /// Get the default timeout for this transport
+    fn default_timeout(&self) -> Option<Duration> {
+        None
+    }
 }
 
 #[derive(Debug)]

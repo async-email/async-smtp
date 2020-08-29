@@ -41,10 +41,6 @@ use std::time::Duration;
 pub trait StreamingTransport {
     /// Result type for the transport
     type StreamResult;
-    /// Get the default timeout for thistransport
-    fn default_timeout(&self) -> Option<Duration> {
-        None
-    }
 
     /// Start sending e-mail and return a stream to write the body to with a timeout
     async fn send_stream_with_timeout(
@@ -52,8 +48,10 @@ pub trait StreamingTransport {
         email: SendableEmailWithoutBody,
         timeout: Option<&Duration>,
     ) -> Self::StreamResult;
-}
 
+    /// Get the default timeout for this transport
+    fn default_timeout(&self) -> Option<Duration>;
+}
 #[async_trait]
 pub trait Transport: StreamingTransport {
     type SendResult;
@@ -80,8 +78,8 @@ pub trait MailStream: Write {
 impl<T, S, E> Transport for T
 where
     T: StreamingTransport<StreamResult = Result<S, E>>,
-    T: Send + Sync,
-    S: MailStream + Unpin + Send + Sync + 'static,
+    T: Sync + Send,
+    S: MailStream + Unpin + Send + 'static,
     S::Error: From<std::io::Error>,
     S::Error: From<E>,
     E: 'static,

@@ -367,7 +367,7 @@ impl StreamingTransport for SmtpTransport {
 #[allow(missing_debug_implementations)]
 pub enum SmtpStream {
     Ready(SmtpStreamInner),
-    Encoding(Pin<Box<dyn Future<Output = std::io::Result<SmtpStreamInner>> + Send + Sync>>),
+    Encoding(Pin<Box<dyn Future<Output = std::io::Result<SmtpStreamInner>> + Send>>),
     Busy,
 }
 #[allow(missing_debug_implementations)]
