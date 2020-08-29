@@ -4,8 +4,10 @@
 use async_std::io::Write;
 use async_std::task;
 use async_trait::async_trait;
+use futures::{ready, Future};
 use log::info;
 use std::convert::AsRef;
+use std::ops::DerefMut;
 use std::pin::Pin;
 use std::process::{Child, Command, Stdio};
 use std::task::{Context, Poll};
@@ -73,7 +75,7 @@ impl StreamingTransport for SendmailTransport {
             .spawn()
             .map_err(Error::Io)?;
 
-        Ok(ProcStream { child, message_id })
+        Ok(ProcStream::Ready(ProcStreamInner { child, message_id }))
     }
     /// Get the default timeout for this transport
     fn default_timeout(&self) -> Option<Duration> {
@@ -82,26 +84,28 @@ impl StreamingTransport for SendmailTransport {
 }
 
 #[allow(missing_debug_implementations)]
-pub struct ProcStream {
+pub enum ProcStream {
+    Busy,
+    Ready(ProcStreamInner),
+    Closing(Pin<Box<dyn Future<Output = SendmailResult> + Send>>),
+    Done(SendmailResult),
+}
+
+#[allow(missing_debug_implementations)]
+pub struct ProcStreamInner {
     child: Child,
     message_id: String,
 }
 
-#[async_trait]
 impl MailStream for ProcStream {
     type Output = ();
     type Error = Error;
-    async fn done(self) -> SendmailResult {
-        let child = self.child;
-        let output =
-            task::spawn_blocking(move || child.wait_with_output().map_err(Error::Io)).await?;
-
-        info!("Wrote {} message to stdin", self.message_id);
-
-        if output.status.success() {
-            Ok(())
-        } else {
-            Err(error::Error::Client(String::from_utf8(output.stderr)?))
+    fn result(self) -> SendmailResult {
+        match self {
+            ProcStream::Done(result) => result,
+            _ => Err(Error::Client(
+                "Mail sending did not finish properly".to_owned(),
+            )),
         }
     }
 }
@@ -110,20 +114,77 @@ impl MailStream for ProcStream {
 impl Write for ProcStream {
     fn poll_write(
         mut self: Pin<&mut Self>,
-        _cx: &mut Context<'_>,
+        cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<std::io::Result<usize>> {
-        use std::io::Write;
-        let len = self.child.stdin.as_mut().ok_or(broken())?.write(buf)?;
-        Poll::Ready(Ok(len))
+        loop {
+            break match self.deref_mut() {
+                ProcStream::Ready(ref mut inner) => {
+                    use std::io::Write;
+                    let len = inner.child.stdin.as_mut().ok_or(broken())?.write(buf)?;
+                    Poll::Ready(Ok(len))
+                }
+                mut otherwise => {
+                    ready!(Pin::new(&mut otherwise).poll_flush(cx))?;
+                    continue;
+                }
+            };
+        }
     }
-    fn poll_flush(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
-        use std::io::Write;
-        self.child.stdin.as_mut().ok_or(broken())?.flush()?;
-        Poll::Ready(Ok(()))
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        loop {
+            break match self.deref_mut() {
+                ProcStream::Ready(ref mut inner) => {
+                    use std::io::Write;
+                    inner.child.stdin.as_mut().ok_or(broken())?.flush()?;
+                    Poll::Ready(Ok(()))
+                }
+                ProcStream::Closing(ref mut fut) => match fut.as_mut().poll(cx) {
+                    Poll::Pending => Poll::Pending,
+                    Poll::Ready(inner) => {
+                        *self = ProcStream::Done(inner);
+                        continue;
+                    }
+                },
+                ProcStream::Done(Ok(_)) => Poll::Ready(Ok(())),
+                ProcStream::Done(Err(_)) => Poll::Ready(Err(broken())),
+                ProcStream::Busy => Poll::Ready(Err(broken())),
+            };
+        }
     }
-    fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
-        self.poll_flush(cx)
+    fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        loop {
+            break match std::mem::replace(self.deref_mut(), ProcStream::Busy) {
+                ProcStream::Ready(ProcStreamInner { child, message_id }) => {
+                    let fut = async move {
+                        let output = task::spawn_blocking(move || {
+                            child.wait_with_output().map_err(Error::Io)
+                        })
+                        .await?;
+
+                        info!("Wrote {} message to stdin", message_id);
+
+                        if output.status.success() {
+                            Ok(())
+                        } else {
+                            Err(error::Error::Client(String::from_utf8(output.stderr)?))
+                        }
+                    };
+                    *self = ProcStream::Closing(Box::pin(fut));
+                    continue;
+                }
+                otherwise @ ProcStream::Closing(_) => {
+                    *self = otherwise;
+                    ready!(Pin::new(&mut self).poll_flush(cx))?;
+                    continue;
+                }
+                otherwise => {
+                    *self = otherwise;
+                    ready!(Pin::new(&mut self).poll_flush(cx))?;
+                    Poll::Ready(Ok(()))
+                }
+            };
+        }
     }
 }
 

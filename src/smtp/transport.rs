@@ -2,10 +2,10 @@ use crate::smtp::response::Response;
 use crate::MailStream;
 use async_trait::async_trait;
 use futures::io::{AsyncWrite as Write, AsyncWriteExt as WriteExt};
+use futures::{ready, Future};
 use log::{debug, info};
 use pin_project::pin_project;
 use std::fmt::Display;
-use std::future::Future;
 use std::ops::DerefMut;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -18,6 +18,9 @@ use crate::smtp::extension::{ClientId, Extension, MailBodyParameter, MailParamet
 use crate::smtp::potential::{Lease, Potential};
 use crate::smtp::smtp_client::{ClientSecurity, SmtpClient};
 use crate::{SendableEmail, SendableEmailWithoutBody, StreamingTransport, Transport};
+
+#[cfg(feature = "socks5")]
+use crate::smtp::client::net::NetworkStream;
 
 /// Represents the state of a client
 #[derive(Debug)]
@@ -96,8 +99,8 @@ impl<'a> SmtpTransport {
         Ok(())
     }
 
-    /// Try to connect, if not already connected.
-    pub async fn connect(&mut self) -> Result<(), Error> {
+    /// Returns OK(true) if the client is ready to use
+    async fn check_connection(&mut self) -> Result<bool, Error> {
         // Check if the connection is alreadyset up and still available
         if self
             .client
@@ -116,57 +119,57 @@ impl<'a> SmtpTransport {
                 "connection already established to {}",
                 self.client_info.server_addr
             );
-            return Ok(());
+            return Ok(true);
         }
 
-        let mut client = self.client.lease().await.ok_or(Error::NoStream)?;
-        let mut client = Pin::new(client.deref_mut());
+        Ok(false)
+    }
 
-        client
-            .as_mut()
-            .connect(
-                &self.client_info.server_addr,
-                self.client_info.timeout,
-                match self.client_info.security {
-                    ClientSecurity::Wrapper(ref tls_parameters) => Some(tls_parameters),
-                    _ => None,
-                },
-            )
-            .await?;
+    /// Try to connect, if not already connected.
+    pub async fn connect(&mut self) -> Result<(), Error> {
+        if self.check_connection().await? {
+            return Ok(());
+        }
+        {
+            let mut client = self.client.lease().await.ok_or(Error::NoStream)?;
+            let mut client = Pin::new(client.deref_mut());
 
-        client.set_timeout(self.client_info.timeout);
-        let _response = client
-            .as_mut()
-            .read_response_with_timeout(self.client_info.timeout.as_ref())
-            .await?;
+            client
+                .as_mut()
+                .connect(
+                    &self.client_info.server_addr,
+                    self.client_info.timeout,
+                    match self.client_info.security {
+                        ClientSecurity::Wrapper(ref tls_parameters) => Some(tls_parameters),
+                        _ => None,
+                    },
+                )
+                .await?;
 
+            client.set_timeout(self.client_info.timeout);
+            let _response = client
+                .as_mut()
+                .read_response_with_timeout(self.client_info.timeout.as_ref())
+                .await?;
+        }
         self.post_connect().await
     }
 
     /// Try to connect to pre-defined stream, if not already connected.
     #[cfg(feature = "socks5")]
     pub async fn connect_with_stream(&mut self, stream: NetworkStream) -> Result<(), Error> {
-        // Check if the connection is still available
-        if (self.client.connection_reuse_count > 0) && (!self.client.is_connected()) {
-            self.close().await?;
-        }
-
-        if self.client.connection_reuse_count > 0 {
-            debug!(
-                "connection already established to {}",
-                self.client_info.server_addr
-            );
+        if self.check_connection().await? {
             return Ok(());
         }
-
         {
-            let mut client = Pin::new(&mut self.client);
-            client.connect_with_stream(stream).await?;
+            let mut client = self.client.lease().await.ok_or(Error::NoStream)?;
+            let mut client = Pin::new(client.deref_mut());
+
+            client.as_mut().connect_with_stream(stream).await?;
 
             client.set_timeout(self.client_info.timeout);
-            let _response = client.read_response().await?;
+            let _response = client.as_mut().read_response().await?;
         }
-
         self.post_connect().await
     }
 
@@ -199,17 +202,15 @@ impl<'a> SmtpTransport {
             } else {
                 return Err(Error::NoServerInfo);
             }
-        } else {
-            if let Some(mechanisms) = self.client_info.authentication_mechanism.as_ref() {
-                for mechanism in mechanisms {
-                    if let Some(credentials) = &self.client_info.credentials {
-                        try_smtp!(client.as_mut().auth(*mechanism, credentials).await, self);
-                    }
+        } else if let Some(mechanisms) = self.client_info.authentication_mechanism.as_ref() {
+            for mechanism in mechanisms {
+                if let Some(credentials) = &self.client_info.credentials {
+                    try_smtp!(client.as_mut().auth(*mechanism, credentials).await, self);
                 }
-                found = true;
-            } else {
-                debug!("force_set_auth set to true, but no authentication mechanism set");
             }
+            found = true;
+        } else {
+            debug!("force_set_auth set to true, but no authentication mechanism set");
         }
 
         if !found {
@@ -366,9 +367,11 @@ impl StreamingTransport for SmtpTransport {
 
 #[allow(missing_debug_implementations)]
 pub enum SmtpStream {
+    Busy,
     Ready(SmtpStreamInner),
     Encoding(Pin<Box<dyn Future<Output = std::io::Result<SmtpStreamInner>> + Send>>),
-    Busy,
+    Closing(Pin<Box<dyn Future<Output = Result<Response, Error>> + Send>>),
+    Done(Result<Response, Error>),
 }
 #[allow(missing_debug_implementations)]
 pub struct SmtpStreamInner {
@@ -389,48 +392,14 @@ impl SmtpStream {
     }
 }
 
-#[async_trait]
 impl MailStream for SmtpStream {
     type Output = Response;
     type Error = Error;
-    async fn done(self) -> Result<Self::Output, Self::Error> {
-        let SmtpStreamInner {
-            mut inner,
-            mut codec,
-            message_id,
-            timeout,
-        } = match self {
-            SmtpStream::Ready(inner) => inner,
-            SmtpStream::Encoding(mut fut) => fut.as_mut().await?,
-            SmtpStream::Busy => return Err(Error::NoStream),
-        };
-        let mut stream = inner.deref_mut().stream.as_mut().ok_or(Error::NoStream)?;
-        // write final dot
-        codec.encode(&[][..], &mut stream).await?;
-        // make sure all is in before reading response
-        stream.flush().await?;
-        // collect response
-        let response = Pin::new(inner.deref_mut())
-            .read_response_with_timeout(timeout.as_ref())
-            .await;
-
-        // Log message sent
-        if let Ok(ref result) = response {
-            // Log the message
-            debug!(
-                "{}: {}, status=sent ({})",
-                message_id,
-                inner.debug_stats(),
-                result.message.get(0).unwrap_or(&"no response".to_string())
-            );
+    fn result(self) -> Result<Self::Output, Self::Error> {
+        match self {
+            SmtpStream::Done(result) => result,
+            _ => Err(Error::Client("Mail sending was not completed properly")),
         }
-
-        if !inner.reuse() {
-            let stream = inner.deref_mut().stream.as_mut().ok_or(Error::NoStream)?;
-            stream.close().await?;
-        }
-
-        response
     }
 }
 
@@ -464,17 +433,11 @@ impl Write for SmtpStream {
                     *self = SmtpStream::Encoding(Box::pin(fut));
                     Poll::Ready(Ok(len))
                 }
-                SmtpStream::Encoding(mut fut) => match fut.as_mut().poll(cx)? {
-                    Poll::Pending => {
-                        *self = SmtpStream::Encoding(fut);
-                        Poll::Pending
-                    }
-                    Poll::Ready(inner) => {
-                        *self = SmtpStream::Ready(inner);
-                        continue;
-                    }
-                },
-                SmtpStream::Busy => Poll::Ready(Err(broken())),
+                otherwise => {
+                    *self = otherwise;
+                    ready!(self.as_mut().poll_flush(cx))?;
+                    continue;
+                }
             };
         }
     }
@@ -495,17 +458,79 @@ impl Write for SmtpStream {
                         continue;
                     }
                 },
+                SmtpStream::Closing(ref mut fut) => match fut.as_mut().poll(cx) {
+                    Poll::Pending => Poll::Pending,
+                    Poll::Ready(result) => {
+                        *self = SmtpStream::Done(result);
+                        continue;
+                    }
+                },
+                SmtpStream::Done(Ok(_)) => Poll::Ready(Ok(())),
+                SmtpStream::Done(Err(_)) => Poll::Ready(Err(broken())),
                 SmtpStream::Busy => Poll::Ready(Err(broken())),
             };
         }
     }
     fn poll_close(
-        self: Pin<&mut Self>,
+        mut self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<std::result::Result<(), std::io::Error>> {
         // Defer close so that the connection can be reused.
         // Lease will send the inner client back on drop.
-        self.poll_flush(cx)
+        // Here we take care of closing the stream with final dot
+        // and reading the response
+        loop {
+            break match std::mem::replace(self.deref_mut(), SmtpStream::Busy) {
+                SmtpStream::Ready(SmtpStreamInner {
+                    mut inner,
+                    mut codec,
+                    message_id,
+                    timeout,
+                }) => {
+                    let fut = async move {
+                        let mut stream =
+                            inner.deref_mut().stream.as_mut().ok_or(Error::NoStream)?;
+                        // write final dot
+                        codec.encode(&[][..], &mut stream).await?;
+                        // make sure all is in before reading response
+                        stream.flush().await?;
+                        // collect response
+                        let response = Pin::new(inner.deref_mut())
+                            .read_response_with_timeout(timeout.as_ref())
+                            .await;
+
+                        // Log message sent
+                        if let Ok(ref result) = response {
+                            // Log the message
+                            debug!(
+                                "{}: {}, status=sent ({})",
+                                message_id,
+                                inner.debug_stats(),
+                                result.message.get(0).unwrap_or(&"no response".to_string())
+                            );
+                        }
+
+                        if !inner.reuse() {
+                            let stream =
+                                inner.deref_mut().stream.as_mut().ok_or(Error::NoStream)?;
+                            stream.close().await?;
+                        }
+                        response
+                    };
+                    *self = SmtpStream::Closing(Box::pin(fut));
+                    continue;
+                }
+                otherwise @ SmtpStream::Encoding(_) | otherwise @ SmtpStream::Closing(_) => {
+                    *self = otherwise;
+                    ready!(self.as_mut().poll_flush(cx));
+                    continue;
+                }
+                otherwise @ SmtpStream::Done(_) | otherwise @ SmtpStream::Busy => {
+                    *self = otherwise;
+                    self.as_mut().poll_flush(cx)
+                }
+            };
+        }
     }
 }
 

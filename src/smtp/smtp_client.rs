@@ -5,8 +5,6 @@ use crate::smtp::authentication::{
     Credentials, Mechanism, DEFAULT_ENCRYPTED_MECHANISMS, DEFAULT_UNENCRYPTED_MECHANISMS,
 };
 use crate::smtp::client::net::ClientTlsParameters;
-#[cfg(feature = "socks5")]
-use crate::smtp::client::net::NetworkStream;
 use crate::smtp::error::Error;
 use crate::smtp::extension::ClientId;
 use crate::smtp::SmtpTransport;

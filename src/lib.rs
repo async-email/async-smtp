@@ -34,6 +34,7 @@ pub use crate::smtp::{ClientSecurity, SmtpClient, SmtpTransport};
 
 use async_std::io::{copy, Write};
 use async_trait::async_trait;
+use futures::io::AsyncWriteExt;
 use std::time::Duration;
 
 /// Transport method for emails
@@ -67,11 +68,10 @@ pub trait Transport: StreamingTransport {
     async fn send_stream(&mut self, email: SendableEmailWithoutBody) -> Self::StreamResult;
 }
 
-#[async_trait]
 pub trait MailStream: Write {
     type Output;
     type Error;
-    async fn done(self) -> Result<Self::Output, Self::Error>;
+    fn result(self) -> Result<Self::Output, Self::Error>;
 }
 
 #[async_trait]
@@ -107,7 +107,8 @@ where
             .await?;
 
         copy(email.message(), &mut stream).await?;
-        Ok(stream.done().await?)
+        stream.close().await?;
+        stream.result()
     }
     /// Start sending e-mail and return a stream to write the body to
     async fn send_stream(

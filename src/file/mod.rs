@@ -8,6 +8,7 @@ use async_std::io::Write;
 use async_std::path::Path;
 use async_trait::async_trait;
 use futures::io::AsyncWriteExt;
+use futures::ready;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::{path::PathBuf, time::Duration};
@@ -74,7 +75,10 @@ impl StreamingTransport for FileTransport {
         let mut file = File::create(file).await?;
         file.write_all(serialized.as_bytes()).await?;
 
-        Ok(FileStream { file })
+        Ok(FileStream {
+            file,
+            closed: false,
+        })
     }
     /// Get the default timeout for this transport
     fn default_timeout(&self) -> Option<Duration> {
@@ -85,15 +89,18 @@ impl StreamingTransport for FileTransport {
 #[derive(Debug)]
 pub struct FileStream {
     file: File,
+    closed: bool,
 }
 
-#[async_trait]
 impl MailStream for FileStream {
     type Output = ();
     type Error = Error;
-    async fn done(mut self) -> FileResult {
-        self.file.close().await?;
-        Ok(())
+    fn result(mut self) -> FileResult {
+        if self.closed {
+            Ok(())
+        } else {
+            Err(Error::Client("file was not closed properly"))
+        }
     }
 }
 
@@ -115,6 +122,8 @@ impl Write for FileStream {
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
     ) -> Poll<std::result::Result<(), std::io::Error>> {
-        Pin::new(&mut self.file).poll_close(cx)
+        ready!(Pin::new(&mut self.file).poll_close(cx)?);
+        self.closed = true;
+        Poll::Ready(Ok(()))
     }
 }

@@ -72,11 +72,10 @@ pub struct StubStream {
     response: StubResult,
 }
 
-#[async_trait]
 impl MailStream for StubStream {
     type Output = ();
     type Error = Error;
-    async fn done(self) -> StubResult {
+    fn result(self) -> StubResult {
         info!("Done: {:?}", self.response);
         self.response
     }
