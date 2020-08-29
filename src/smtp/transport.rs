@@ -310,7 +310,7 @@ impl StreamingTransport for SmtpTransport {
     type StreamResult = Result<SmtpStream, Error>;
 
     fn default_timeout(&self) -> Option<Duration> {
-        self.client_info.timeout.clone()
+        self.client_info.timeout
     }
     async fn send_stream_with_timeout(
         &mut self,
@@ -421,7 +421,7 @@ impl Write for SmtpStream {
                     let buf = Vec::from(buf);
                     let fut = async move {
                         codec
-                            .encode(&buf[..], inner.deref_mut().stream.as_mut().ok_or(broken())?)
+                            .encode(&buf[..], inner.deref_mut().stream.as_mut().ok_or_else(broken)?)
                             .await?;
                         Ok(SmtpStreamInner {
                             inner,
@@ -448,7 +448,7 @@ impl Write for SmtpStream {
         loop {
             break match self.deref_mut() {
                 SmtpStream::Ready(ref mut inner) => {
-                    Pin::new(inner.inner.deref_mut().stream.as_mut().ok_or(broken())?)
+                    Pin::new(inner.inner.deref_mut().stream.as_mut().ok_or_else(broken)?)
                         .poll_flush(cx)
                 }
                 SmtpStream::Encoding(ref mut fut) => match fut.as_mut().poll(cx)? {

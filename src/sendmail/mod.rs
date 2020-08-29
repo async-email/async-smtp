@@ -121,7 +121,7 @@ impl Write for ProcStream {
             break match self.deref_mut() {
                 ProcStream::Ready(ref mut inner) => {
                     use std::io::Write;
-                    let len = inner.child.stdin.as_mut().ok_or(broken())?.write(buf)?;
+                    let len = inner.child.stdin.as_mut().ok_or_else(broken)?.write(buf)?;
                     Poll::Ready(Ok(len))
                 }
                 mut otherwise => {
@@ -136,7 +136,7 @@ impl Write for ProcStream {
             break match self.deref_mut() {
                 ProcStream::Ready(ref mut inner) => {
                     use std::io::Write;
-                    inner.child.stdin.as_mut().ok_or(broken())?.flush()?;
+                    inner.child.stdin.as_mut().ok_or_else(broken)?.flush()?;
                     Poll::Ready(Ok(()))
                 }
                 ProcStream::Closing(ref mut fut) => match fut.as_mut().poll(cx) {
