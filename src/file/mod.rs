@@ -3,17 +3,21 @@
 //! It can be useful for testing purposes, or if you want to keep track of sent messages.
 //!
 
+use async_std::fs::File;
+use async_std::io::Write;
+use async_std::path::Path;
+use async_trait::async_trait;
+use futures::io::AsyncWriteExt;
+use futures::ready;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 use std::{path::PathBuf, time::Duration};
 
-use async_std::fs::File;
-use async_std::path::Path;
-use async_std::prelude::*;
-use async_trait::async_trait;
-
-use crate::file::error::FileResult;
+use crate::file::error::{Error, FileResult};
 use crate::Envelope;
-use crate::SendableEmail;
-use crate::Transport;
+use crate::MailStream;
+use crate::SendableEmailWithoutBody;
+use crate::StreamingTransport;
 
 pub mod error;
 
@@ -44,38 +48,82 @@ impl FileTransport {
 struct SerializableEmail {
     envelope: Envelope,
     message_id: String,
-    message: Vec<u8>,
 }
 
 #[async_trait]
-impl<'a> Transport<'a> for FileTransport {
-    type Result = FileResult;
+impl StreamingTransport for FileTransport {
+    type StreamResult = Result<FileStream, Error>;
 
-    async fn send(&mut self, email: SendableEmail) -> FileResult {
+    async fn send_stream_with_timeout(
+        &mut self,
+        email: SendableEmailWithoutBody,
+        _timeout: Option<&Duration>,
+    ) -> Self::StreamResult {
         let message_id = email.message_id().to_string();
         let envelope = email.envelope().clone();
 
         let mut file = self.path.clone();
         file.push(format!("{}.json", message_id));
 
-        let serialized = serde_json::to_string(&SerializableEmail {
+        let mut serialized = serde_json::to_string(&SerializableEmail {
             envelope,
             message_id,
-            message: email.message_to_string().await?.as_bytes().to_vec(),
         })?;
 
-        File::create(file)
-            .await?
-            .write_all(serialized.as_bytes())
-            .await?;
-        Ok(())
-    }
+        serialized += "\n";
 
-    async fn send_with_timeout(
-        &mut self,
-        email: SendableEmail,
-        _timeout: Option<&Duration>,
-    ) -> Self::Result {
-        self.send(email).await // Writing to a file does not have a timeout, so just ignore it.
+        let mut file = File::create(file).await?;
+        file.write_all(serialized.as_bytes()).await?;
+
+        Ok(FileStream {
+            file,
+            closed: false,
+        })
+    }
+    /// Get the default timeout for this transport
+    fn default_timeout(&self) -> Option<Duration> {
+        None
+    }
+}
+
+#[derive(Debug)]
+pub struct FileStream {
+    file: File,
+    closed: bool,
+}
+
+impl MailStream for FileStream {
+    type Output = ();
+    type Error = Error;
+    fn result(self) -> FileResult {
+        if self.closed {
+            Ok(())
+        } else {
+            Err(Error::Client("file was not closed properly"))
+        }
+    }
+}
+
+impl Write for FileStream {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<std::result::Result<usize, std::io::Error>> {
+        Pin::new(&mut self.file).poll_write(cx, buf)
+    }
+    fn poll_flush(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<std::result::Result<(), std::io::Error>> {
+        Pin::new(&mut self.file).poll_flush(cx)
+    }
+    fn poll_close(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<std::result::Result<(), std::io::Error>> {
+        ready!(Pin::new(&mut self.file).poll_close(cx)?);
+        self.closed = true;
+        Poll::Ready(Ok(()))
     }
 }

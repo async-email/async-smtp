@@ -7,7 +7,7 @@ mod test {
     #[async_attributes::test]
     async fn stub_transport() {
         let mut sender_ok = StubTransport::new_positive();
-        let mut sender_ko = StubTransport::new(Err(()));
+        let mut sender_ko = StubTransport::new(Err("fail".into()));
         let email_ok = SendableEmail::new(
             Envelope::new(
                 Some(EmailAddress::new("user@localhost".to_string()).unwrap()),
@@ -27,7 +27,7 @@ mod test {
             "Hello ß☺ example".to_string().into_bytes(),
         );
 
-        sender_ok.send(email_ok).await.unwrap();
+        Transport::send(&mut sender_ok, email_ok).await.unwrap();
         sender_ko.send(email_ko).await.unwrap_err();
     }
 }
