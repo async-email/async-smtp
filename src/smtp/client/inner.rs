@@ -263,17 +263,12 @@ impl<S: Write + Read + Connector> InnerClient<S> {
     }
     /// Upgrades the underlying connection to SSL/TLS.
     pub async fn upgrade_tls_stream(
-        self,
+        &mut self,
         tls_parameters: &ClientTlsParameters,
-    ) -> io::Result<Self> {
-        match self.stream {
-            Some(stream) => Ok(InnerClient {
-                stream: Some(stream.upgrade_tls(tls_parameters).await?),
-                timeout: self.timeout,
-                connection_reuse_count: self.connection_reuse_count,
-                connection_reuse: self.connection_reuse,
-            }),
-            None => Ok(self),
+    ) -> io::Result<()> {
+        match self.stream.take() {
+            Some(stream) => Ok(self.stream = Some(stream.upgrade_tls(tls_parameters).await?)),
+            None => Ok(()),
         }
     }
     /// Tells if the underlying stream is currently encrypted

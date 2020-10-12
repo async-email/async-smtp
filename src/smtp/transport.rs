@@ -5,6 +5,7 @@ use futures::io::{AsyncWrite as Write, AsyncWriteExt as WriteExt};
 use futures::{ready, Future};
 use log::{debug, info};
 use pin_project::pin_project;
+use potential::{Lease, Potential};
 use std::fmt::Display;
 use std::ops::DerefMut;
 use std::pin::Pin;
@@ -15,7 +16,6 @@ use crate::smtp::client::{ClientCodec, InnerClient};
 use crate::smtp::commands::*;
 use crate::smtp::error::{Error, SmtpResult};
 use crate::smtp::extension::{ClientId, Extension, MailBodyParameter, MailParameter, ServerInfo};
-use crate::smtp::potential::{Lease, Potential};
 use crate::smtp::smtp_client::{ClientSecurity, SmtpClient};
 use crate::{SendableEmail, SendableEmailWithoutBody, StreamingTransport, Transport};
 
@@ -65,7 +65,7 @@ impl<'a> SmtpTransport {
     /// It does not connect to the server, but only creates the `SmtpTransport`
     pub fn new(builder: SmtpClient) -> SmtpTransport {
         SmtpTransport {
-            client: Potential::present(InnerClient::new(builder.connection_reuse)),
+            client: Potential::new(InnerClient::new(builder.connection_reuse)),
             server_info: None,
             client_info: builder,
             state: State { panic: false },
@@ -75,14 +75,23 @@ impl<'a> SmtpTransport {
     /// Borrow the inner client mutably in a Pin if available.
     /// reutns `Error::NoStream` ifnot available
     async fn client(&mut self) -> Result<Pin<&mut InnerClient>, Error> {
-        Ok(Pin::new(self.client.as_mut().await.ok_or(Error::NoStream)?))
+        Ok(Pin::new(
+            self.client.get_mut().await.ok_or(Error::NoStream)?,
+        ))
+    }
+
+    /// Get the leased inner client, recreating it if gone
+    async fn client_lease(&self) -> Lease<InnerClient> {
+        match self.client.lease().await {
+            Ok(lease) => lease,
+            Err(gone) => gone.set(InnerClient::new(self.client_info.connection_reuse)),
+        }
     }
 
     /// Returns true if there is currently an established connection.
-    pub fn is_connected(&self) -> bool {
-        self.client
-            .map_present(InnerClient::is_connected)
-            .unwrap_or_default()
+    pub async fn is_connected(&self) -> bool {
+        // TODO: can be done sync with some refactoring
+        self.client_lease().await.is_connected()
     }
 
     /// Operations to perform right after the connection has been established
@@ -102,9 +111,11 @@ impl<'a> SmtpTransport {
     /// Returns OK(true) if the client is ready to use
     async fn check_connection(&mut self) -> Result<bool, Error> {
         // Check if the connection is alreadyset up and still available
-        if self
+        if !self
             .client
-            .map_present(|c| !c.can_be_reused())
+            .get_mut()
+            .await
+            .map(|c| c.can_be_reused())
             .unwrap_or_default()
         {
             self.close().await?;
@@ -112,7 +123,9 @@ impl<'a> SmtpTransport {
 
         if self
             .client
-            .map_present(|c| c.has_been_used())
+            .get_mut()
+            .await
+            .map(|c| c.has_been_used())
             .unwrap_or_default()
         {
             debug!(
@@ -131,7 +144,7 @@ impl<'a> SmtpTransport {
             return Ok(());
         }
         {
-            let mut client = self.client.lease().await.ok_or(Error::NoStream)?;
+            let mut client = self.client_lease().await;
             let mut client = Pin::new(client.deref_mut());
 
             client
@@ -178,7 +191,7 @@ impl<'a> SmtpTransport {
             return Ok(());
         }
 
-        let mut client = self.client.lease().await.ok_or(Error::NoStream)?;
+        let mut client = self.client_lease().await;
         let mut client = Pin::new(client.deref_mut());
         let mut found = false;
 
@@ -222,7 +235,7 @@ impl<'a> SmtpTransport {
 
     async fn try_tls(&mut self) -> Result<(), Error> {
         let server_info = self.server_info.as_ref().ok_or(Error::NoServerInfo)?;
-        let mut client = self.client.lease().await.ok_or(Error::NoStream)?;
+        let mut client = self.client_lease().await;
         match (
             &self.client_info.security,
             server_info.supports_feature(Extension::StartTls),
@@ -241,10 +254,7 @@ impl<'a> SmtpTransport {
                         self
                     );
                 }
-                client
-                    .replace(|c| c.upgrade_tls_stream(tls_parameters))
-                    .await?;
-
+                client.upgrade_tls_stream(tls_parameters).await?;
                 debug!("connection encrypted");
 
                 // Send EHLO again
@@ -358,7 +368,7 @@ impl StreamingTransport for SmtpTransport {
         try_smtp!(client.as_mut().command(DataCommand).await, self);
 
         Ok(SmtpStream::new(
-            self.client.lease().await.ok_or(Error::NoStream)?,
+            self.client_lease().await,
             email.message_id().to_string(),
             timeout.cloned(),
         ))
