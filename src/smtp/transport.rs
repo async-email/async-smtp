@@ -175,7 +175,7 @@ impl<'a> SmtpTransport {
             return Ok(());
         }
         {
-            let mut client = self.client.lease().await.ok_or(Error::NoStream)?;
+            let mut client = self.client_lease().await;
             let mut client = Pin::new(client.deref_mut());
 
             client.as_mut().connect_with_stream(stream).await?;

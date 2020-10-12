@@ -61,7 +61,7 @@ impl StreamingTransport for SendmailTransport {
             .envelope()
             .from()
             .map(AsRef::as_ref)
-            .unwrap_or("\"\"") // Checkme: shouldthis be "<>"?
+            .unwrap_or("\"\"")
             .to_owned();
         let to = email.envelope().to().to_owned();
 

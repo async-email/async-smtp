@@ -64,7 +64,7 @@ impl<S: Write + Read> InnerClient<S> {
         }
     }
     pub fn debug_stats(&self) -> String {
-        format! {"conn_use={}",self.connection_reuse_count}
+        format!("conn_use={}", self.connection_reuse_count)
     }
     /// Checks if the underlying server socket is connected
     pub fn is_connected(&self) -> bool {
