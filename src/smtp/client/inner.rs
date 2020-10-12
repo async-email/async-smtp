@@ -266,10 +266,9 @@ impl<S: Write + Read + Connector> InnerClient<S> {
         &mut self,
         tls_parameters: &ClientTlsParameters,
     ) -> io::Result<()> {
-        match self.stream.take() {
-            Some(stream) => self.stream = Some(stream.upgrade_tls(tls_parameters).await?),
-            None => {}
-        };
+        if let Some(stream) = self.stream.take() {
+            self.stream = Some(stream.upgrade_tls(tls_parameters).await?);
+        }
         Ok(())
     }
     /// Tells if the underlying stream is currently encrypted
