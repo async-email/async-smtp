@@ -69,6 +69,7 @@ impl<'a> Transport<'a> for SendmailTransport {
                 .arg("-i")
                 .arg("-f")
                 .arg(from)
+                .arg("--")
                 .args(to)
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
