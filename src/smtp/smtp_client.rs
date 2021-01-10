@@ -389,10 +389,7 @@ impl<'a> SmtpTransport {
     }
 
     async fn try_tls(&mut self) -> Result<(), Error> {
-        let server_info = self
-            .server_info
-            .as_ref()
-            .ok_or(Error::NoServerInfo)?;
+        let server_info = self.server_info.as_ref().ok_or(Error::NoServerInfo)?;
         match (
             &self.client_info.security,
             server_info.supports_feature(Extension::StartTls),
