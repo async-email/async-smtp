@@ -392,7 +392,7 @@ impl<'a> SmtpTransport {
         let server_info = self
             .server_info
             .as_ref()
-            .ok_or_else(|| Error::NoServerInfo)?;
+            .ok_or(Error::NoServerInfo)?;
         match (
             &self.client_info.security,
             server_info.supports_feature(Extension::StartTls),
