@@ -117,6 +117,20 @@ impl SmtpClient {
         }
     }
 
+    /// Creates a new unencrypted SMTP client
+    ///
+    /// Defaults are:
+    ///
+    /// * No connection reuse
+    /// * No authentication
+    /// * No SMTPUTF8 support
+    /// * A 60 seconds timeout for smtp commands
+    ///
+    /// Consider using [`SmtpClient::new_simple`] instead, if possible.
+    pub async fn unencrypted<A: ToSocketAddrs>(addr: A) -> Result<SmtpClient, Error> {
+        SmtpClient::with_security(addr, ClientSecurity::None).await
+    }
+
     /// Simple and secure transport, should be used when possible.
     /// Creates an encrypted transport over submissions port, using the provided domain
     /// to validate TLS certificates.
