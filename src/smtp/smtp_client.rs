@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use async_std::net::{SocketAddr, ToSocketAddrs};
 use async_std::pin::Pin;
+use async_std::future;
 use async_trait::async_trait;
 use log::{debug, info};
 use pin_project::pin_project;
@@ -18,6 +19,12 @@ use crate::smtp::commands::*;
 use crate::smtp::error::{Error, SmtpResult};
 use crate::smtp::extension::{ClientId, Extension, MailBodyParameter, MailParameter, ServerInfo};
 use crate::{SendableEmail, Transport};
+use std::net::{Ipv4Addr, Ipv6Addr};
+use async_std::net::IpAddr;
+use fast_socks5::client::Config;
+use fast_socks5::client::Socks5Stream;
+
+
 
 // Registered port numbers:
 // https://www.iana.
@@ -130,6 +137,32 @@ impl SmtpClient {
             ClientSecurity::Wrapper(tls_parameters),
         )
         .await
+    }
+
+
+    pub async fn new_socks5(domain: &str, credentials: Option<Credentials>, timeout: Duration, socks5_host_port: String) -> Result<SmtpTransport, Error> {
+        let tls = async_native_tls::TlsConnector::new();
+
+        let tls_parameters = ClientTlsParameters::new(domain.to_string(), tls);
+
+        let mut transport = SmtpClient {
+            server_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080),
+            security: ClientSecurity::Wrapper(tls_parameters),
+            smtp_utf8: false,
+            credentials,
+            connection_reuse: ConnectionReuseParameters::NoReuse,
+            hello_name: Default::default(),
+            authentication_mechanism: None,
+            force_set_auth: false,
+            timeout: Some(timeout),
+        }.into_transport();
+
+        let socks5_stream = future::timeout(timeout, Socks5Stream::connect(socks5_host_port, domain.to_string(), 25, Config::default())).await.unwrap().unwrap();
+
+
+        println!("xxx");
+        transport.connect_with_stream(NetworkStream::Socks5Stream(socks5_stream)).await?;
+        Ok(transport)
     }
 
     /// Creates a new local SMTP client to port 25
