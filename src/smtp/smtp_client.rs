@@ -3,7 +3,6 @@ use std::time::Duration;
 
 use async_std::net::{SocketAddr, ToSocketAddrs};
 use async_std::pin::Pin;
-use async_std::future;
 use async_trait::async_trait;
 use log::{debug, info};
 use pin_project::pin_project;
@@ -12,18 +11,23 @@ use crate::smtp::authentication::{
     Credentials, Mechanism, DEFAULT_ENCRYPTED_MECHANISMS, DEFAULT_UNENCRYPTED_MECHANISMS,
 };
 use crate::smtp::client::net::ClientTlsParameters;
-#[cfg(feature = "socks5")]
-use crate::smtp::client::net::NetworkStream;
 use crate::smtp::client::InnerClient;
 use crate::smtp::commands::*;
 use crate::smtp::error::{Error, SmtpResult};
 use crate::smtp::extension::{ClientId, Extension, MailBodyParameter, MailParameter, ServerInfo};
 use crate::{SendableEmail, Transport};
-use std::net::{Ipv4Addr, Ipv6Addr};
-use async_std::net::IpAddr;
-use fast_socks5::client::Config;
-use fast_socks5::client::Socks5Stream;
 
+
+#[cfg(feature = "socks5")]
+use fast_socks5::client::{Config, Socks5Stream};
+#[cfg(feature = "socks5")]
+use crate::smtp::client::net::NetworkStream;
+#[cfg(feature = "socks5")]
+use std::net::Ipv4Addr;
+#[cfg(feature = "socks5")]
+use async_std::net::IpAddr;
+#[cfg(feature = "socks5")]
+use async_std::future;
 
 
 // Registered port numbers:
@@ -140,6 +144,7 @@ impl SmtpClient {
     }
 
 
+    #[cfg(feature = "socks5")]
     pub async fn new_socks5(domain: &str, credentials: Option<Credentials>, timeout: Duration, socks5_host_port: String) -> Result<SmtpTransport, Error> {
         let tls = async_native_tls::TlsConnector::new();
 
@@ -157,10 +162,9 @@ impl SmtpClient {
             timeout: Some(timeout),
         }.into_transport();
 
-        let socks5_stream = future::timeout(timeout, Socks5Stream::connect(socks5_host_port, domain.to_string(), 25, Config::default())).await.unwrap().unwrap();
+        let socks5_stream = future::timeout(timeout, Socks5Stream::connect(socks5_host_port, domain.to_string(), 80, Config::default())).await??;
 
 
-        println!("xxx");
         transport.connect_with_stream(NetworkStream::Socks5Stream(socks5_stream)).await?;
         Ok(transport)
     }
