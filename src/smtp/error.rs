@@ -6,6 +6,10 @@ use base64::DecodeError;
 use std::io;
 use std::string::FromUtf8Error;
 
+
+#[cfg(feature = "socks5")]
+use fast_socks5;
+
 /// An enum of all error kinds.
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -49,6 +53,10 @@ pub enum Error {
     NoStream,
     #[error("no server info")]
     NoServerInfo,
+
+    #[cfg(feature = "socks5")]
+    #[error("socks5 error")]
+    SocksError( #[from] fast_socks5::SocksError),
 }
 
 impl From<nom::Err<(&str, nom::error::ErrorKind)>> for Error {
