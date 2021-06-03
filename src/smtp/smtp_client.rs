@@ -145,13 +145,14 @@ impl SmtpClient {
 
 
     #[cfg(feature = "socks5")]
-    pub async fn new_socks5(domain: &str, credentials: Option<Credentials>, timeout: Duration, socks5_host_port: String) -> Result<SmtpTransport, Error> {
+    pub async fn new_socks5(host: &str, port: u16, credentials: Option<Credentials>, timeout: Duration, socks5_host_port: String) -> Result<SmtpTransport, Error> {
         let tls = async_native_tls::TlsConnector::new();
 
-        let tls_parameters = ClientTlsParameters::new(domain.to_string(), tls);
+        let tls_parameters = ClientTlsParameters::new(host.to_string(), tls);
 
         let mut transport = SmtpClient {
-            server_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080),
+            // This should never be used and is just to make the struct happy
+            server_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), port),
             security: ClientSecurity::Wrapper(tls_parameters),
             smtp_utf8: false,
             credentials,
@@ -162,8 +163,9 @@ impl SmtpClient {
             timeout: Some(timeout),
         }.into_transport();
 
-        let socks5_stream = future::timeout(timeout, Socks5Stream::connect(socks5_host_port, domain.to_string(), 80, Config::default())).await??;
+        let socks5_stream = future::timeout(timeout, Socks5Stream::connect(socks5_host_port, host.to_string(), port, Config::default())).await??;
 
+        println!("Successfully connected through socks5");
 
         transport.connect_with_stream(NetworkStream::Socks5Stream(socks5_stream)).await?;
         Ok(transport)
@@ -373,7 +375,9 @@ impl<'a> SmtpTransport {
             client.connect_with_stream(stream).await?;
 
             client.set_timeout(self.client_info.timeout);
-            let _response = client.read_response().await?;
+            let _response = super::client::with_timeout(self.client_info.timeout.as_ref(), async {
+              client.read_response().await  
+            }).await?;
         }
 
         self.post_connect().await
@@ -525,6 +529,11 @@ impl<'a> SmtpTransport {
     /// Try to connect and then send a message.
     pub async fn connect_and_send(&mut self, email: SendableEmail) -> SmtpResult {
         self.connect().await?;
+        self.send(email).await
+    }
+
+    pub async fn send2(&mut self, email: SendableEmail) -> SmtpResult {
+        
         self.send(email).await
     }
 }
