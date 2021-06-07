@@ -4,6 +4,7 @@ use self::Error::*;
 use crate::smtp::response::{Response, Severity};
 use base64::DecodeError;
 use std::io;
+use std::net::AddrParseError;
 use std::string::FromUtf8Error;
 
 
@@ -53,10 +54,14 @@ pub enum Error {
     NoStream,
     #[error("no server info")]
     NoServerInfo,
+    
+    #[error("address parse error")]
+    AddrParseError(#[from] AddrParseError),
 
     #[cfg(feature = "socks5")]
     #[error("socks5 error")]
     SocksError( #[from] fast_socks5::SocksError),
+    
 }
 
 impl From<nom::Err<(&str, nom::error::ErrorKind)>> for Error {
