@@ -17,14 +17,12 @@ use crate::smtp::error::{Error, SmtpResult};
 use crate::smtp::extension::{ClientId, Extension, MailBodyParameter, MailParameter, ServerInfo};
 use crate::{SendableEmail, Transport};
 
-
-#[cfg(feature = "socks5")]
-use fast_socks5::client::{Config, Socks5Stream};
 #[cfg(feature = "socks5")]
 use crate::smtp::client::net::NetworkStream;
 #[cfg(feature = "socks5")]
 use async_std::future;
-
+#[cfg(feature = "socks5")]
+use fast_socks5::client::{Config, Socks5Stream};
 
 // Registered port numbers:
 // https://www.iana.
@@ -50,24 +48,20 @@ pub enum ClientSecurity {
     Wrapper(ClientTlsParameters),
 }
 
-
 #[derive(Clone, Debug)]
 pub struct ServerAddress {
     host: String,
-    port: u16
+    port: u16,
 }
 
 impl ServerAddress {
     pub fn new(host: String, port: u16) -> ServerAddress {
-       ServerAddress {
-            host,
-            port
-        }
+        ServerAddress { host, port }
     }
     pub fn into_socket_addr(&self) -> Result<SocketAddr, Error> {
         match format!("{}:{}", self.host, self.port).parse::<SocketAddr>() {
             Ok(socket_addr) => Ok(socket_addr),
-            Err(e) => Err(Error::AddrParseError(e))
+            Err(e) => Err(Error::AddrParseError(e)),
         }
     }
 }
@@ -76,7 +70,6 @@ impl Display for ServerAddress {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}:{}", self.host, self.port)
     }
-    
 }
 
 /// Configures connection reuse behavior
@@ -131,10 +124,7 @@ impl SmtpClient {
     /// * A 60 seconds timeout for smtp commands
     ///
     /// Consider using [`SmtpClient::new_simple`] instead, if possible.
-    pub fn with_security(
-        server_addr: ServerAddress,
-        security: ClientSecurity,
-    ) -> SmtpClient {
+    pub fn with_security(server_addr: ServerAddress, security: ClientSecurity) -> SmtpClient {
         // TODO: Move to SmtpTransport.connect
         // let mut addresses = addr.to_socket_addrs().await?;
         SmtpClient {
@@ -164,20 +154,27 @@ impl SmtpClient {
         )
     }
 
-
     #[cfg(feature = "socks5")]
-    pub async fn new_socks5(server_addr: ServerAddress, credentials: Option<Credentials>, timeout: Duration, socks5_host_port: String) -> Result<SmtpTransport, Error> {
+    pub async fn new_socks5(
+        server_addr: ServerAddress,
+        credentials: Option<Credentials>,
+        timeout: Duration,
+        socks5_host_port: String,
+    ) -> Result<SmtpTransport, Error> {
         let tls = async_native_tls::TlsConnector::new();
 
         let tls_parameters = ClientTlsParameters::new(server_addr.host.clone(), tls);
-        
+
         let socks5_stream = future::timeout(
             timeout,
             Socks5Stream::connect(
                 socks5_host_port,
                 server_addr.host.clone(),
                 server_addr.port,
-                 Config::default())).await??;
+                Config::default(),
+            ),
+        )
+        .await??;
 
         let mut transport = SmtpClient {
             // This should never be used and is just to make the struct happy
@@ -190,18 +187,23 @@ impl SmtpClient {
             authentication_mechanism: None,
             force_set_auth: false,
             timeout: Some(timeout),
-        }.into_transport();
-
+        }
+        .into_transport();
 
         println!("Successfully connected through socks5");
 
-        transport.connect_with_stream(NetworkStream::Socks5Stream(socks5_stream)).await?;
+        transport
+            .connect_with_stream(NetworkStream::Socks5Stream(socks5_stream))
+            .await?;
         Ok(transport)
     }
 
     /// Creates a new local SMTP client to port 25
     pub async fn new_unencrypted_localhost() -> SmtpClient {
-        SmtpClient::with_security(ServerAddress::new("localhost".to_string(), SMTP_PORT), ClientSecurity::None)
+        SmtpClient::with_security(
+            ServerAddress::new("localhost".to_string(), SMTP_PORT),
+            ClientSecurity::None,
+        )
     }
 
     /// Enable SMTPUTF8 if the server supports it
@@ -359,12 +361,10 @@ impl<'a> SmtpTransport {
             return Ok(());
         }
 
-
         let socket_addr = self.client_info.server_addr.into_socket_addr()?;
-        
+
         // Perform dns lookup if needed
         let mut addresses = socket_addr.to_socket_addrs().await?;
-
 
         match addresses.next() {
             Some(addr) => {
@@ -381,12 +381,13 @@ impl<'a> SmtpTransport {
                     .await?;
 
                 client.set_timeout(self.client_info.timeout);
-                let _response = super::client::with_timeout(self.client_info.timeout.as_ref(), async {
-                    client.read_response().await
-                })
-                .await?;
-            },
-            None => return Err(Error::Resolution)
+                let _response =
+                    super::client::with_timeout(self.client_info.timeout.as_ref(), async {
+                        client.read_response().await
+                    })
+                    .await?;
+            }
+            None => return Err(Error::Resolution),
         };
 
         self.post_connect().await
@@ -414,8 +415,9 @@ impl<'a> SmtpTransport {
 
             client.set_timeout(self.client_info.timeout);
             let _response = super::client::with_timeout(self.client_info.timeout.as_ref(), async {
-              client.read_response().await  
-            }).await?;
+                client.read_response().await
+            })
+            .await?;
         }
 
         self.post_connect().await
@@ -571,7 +573,6 @@ impl<'a> SmtpTransport {
     }
 
     pub async fn send2(&mut self, email: SendableEmail) -> SmtpResult {
-        
         self.send(email).await
     }
 }
