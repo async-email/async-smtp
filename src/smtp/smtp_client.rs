@@ -59,7 +59,7 @@ impl ServerAddress {
     pub fn new(host: String, port: u16) -> ServerAddress {
         ServerAddress { host, port }
     }
-    pub fn into_socket_addr(&self) -> Result<SocketAddr, Error> {
+    pub fn to_socket_addr(&self) -> Result<SocketAddr, Error> {
         match format!("{}:{}", self.host, self.port).parse::<SocketAddr>() {
             Ok(socket_addr) => Ok(socket_addr),
             Err(e) => Err(Error::AddrParseError(e)),
@@ -79,49 +79,55 @@ pub struct Socks5Config {
     pub host: String,
     pub port: u16,
     pub user: Option<String>,
-    pub password: Option<String>
+    pub password: Option<String>,
 }
 
 #[cfg(feature = "socks5")]
 impl Socks5Config {
-    pub async fn connect(&self, target_addr: &ServerAddress, timeout: Duration) -> Result<Socks5Stream<TcpStream>, Error> {
+    pub async fn connect(
+        &self,
+        target_addr: &ServerAddress,
+        timeout: Duration,
+    ) -> Result<Socks5Stream<TcpStream>, Error> {
         let socks_server = format!("{}:{}", self.host.clone(), self.port);
         println!("{}", socks_server);
-        
+
         let socks_connection = future::timeout(
             timeout,
-             Socks5Stream::connect(
+            Socks5Stream::connect(
                 socks_server,
                 target_addr.host.clone(),
                 target_addr.port,
                 Config::default(),
-            
-            )
+            ),
         );
-        match socks_connection
-        .await? {
+        match socks_connection.await? {
             Ok(socks5_stream) => Ok(socks5_stream),
-            Err(e) => Err(Error::Socks5Error(e))
+            Err(e) => Err(Error::Socks5Error(e)),
         }
-
     }
 }
 
 #[cfg(feature = "socks5")]
 impl Display for Socks5Config {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}:{} user: {} password: xxx", self.host, self.port, self.user.clone().unwrap_or("None".to_string()))
+        write!(
+            f,
+            "{}:{} user: {} password: xxx",
+            self.host,
+            self.port,
+            self.user.clone().unwrap_or_else(|| "None".to_string())
+        )
     }
 }
 
 #[derive(Clone, Debug)]
 pub enum ConnectionType {
     Direct,
-    
-    #[cfg(feature = "socks5")]
-    Socks5(Socks5Config) 
-}
 
+    #[cfg(feature = "socks5")]
+    Socks5(Socks5Config),
+}
 
 /// Configures connection reuse behavior
 #[derive(Clone, Debug, Copy)]
@@ -206,10 +212,7 @@ impl SmtpClient {
     }
 
     #[cfg(feature = "socks5")]
-    pub fn new_host_port(
-        host: String,
-        port: u16,        
-    ) -> SmtpClient {
+    pub fn new_host_port(host: String, port: u16) -> SmtpClient {
         let tls = async_native_tls::TlsConnector::new();
 
         let tls_parameters = ClientTlsParameters::new(host.to_string(), tls);
@@ -246,11 +249,12 @@ impl SmtpClient {
         self
     }
 
+    #[cfg(feature = "socks5")]
     pub fn use_socks5(mut self, socks5_config: Socks5Config) -> Self {
         self.connection_type = ConnectionType::Socks5(socks5_config);
-        self    
+        self
     }
-    
+
     pub fn connection_type(mut self, connection_type: ConnectionType) -> Self {
         self.connection_type = connection_type;
         self
@@ -377,20 +381,25 @@ impl<'a> SmtpTransport {
 
         Ok(())
     }
-    
+
     pub async fn connect(&mut self) -> Result<(), Error> {
         match &self.client_info.connection_type {
             ConnectionType::Direct => self.connect_direct().await,
-            
+
             #[cfg(feature = "socks5")]
-            ConnectionType::Socks5 ( socks5 ) => {
+            ConnectionType::Socks5(socks5) => {
                 println!("Trying to connect with socks5...");
-                let socks5_stream = socks5.connect(
-                    &self.client_info.server_addr,
-                    self.client_info.timeout.unwrap_or(Duration::from_millis(100))
-                ).await?; 
+                let socks5_stream = socks5
+                    .connect(
+                        &self.client_info.server_addr,
+                        self.client_info
+                            .timeout
+                            .unwrap_or_else(|| Duration::from_millis(100)),
+                    )
+                    .await?;
                 println!("Connected through socks5");
-                self.connect_with_stream(NetworkStream::Socks5Stream(socks5_stream)).await
+                self.connect_with_stream(NetworkStream::Socks5Stream(socks5_stream))
+                    .await
             }
         }
     }
@@ -410,7 +419,7 @@ impl<'a> SmtpTransport {
             return Ok(());
         }
 
-        let socket_addr = self.client_info.server_addr.into_socket_addr()?;
+        let socket_addr = self.client_info.server_addr.to_socket_addr()?;
 
         // Perform dns lookup if needed
         let mut addresses = socket_addr.to_socket_addrs().await?;
