@@ -59,7 +59,7 @@ pub enum Error {
 
     #[cfg(feature = "socks5")]
     #[error("socks5 error")]
-    SocksError(#[from] fast_socks5::SocksError),
+    Socks5Error(#[from] fast_socks5::SocksError),
 }
 
 impl From<nom::Err<(&str, nom::error::ErrorKind)>> for Error {

@@ -1,6 +1,7 @@
 use std::fmt::Display;
 use std::time::Duration;
 
+use async_std::net::TcpStream;
 use async_std::net::{SocketAddr, ToSocketAddrs};
 use async_std::pin::Pin;
 use async_trait::async_trait;
@@ -72,6 +73,56 @@ impl Display for ServerAddress {
     }
 }
 
+#[cfg(feature = "socks5")]
+#[derive(Clone, Debug)]
+pub struct Socks5Config {
+    pub host: String,
+    pub port: u16,
+    pub user: Option<String>,
+    pub password: Option<String>
+}
+
+#[cfg(feature = "socks5")]
+impl Socks5Config {
+    pub async fn connect(&self, target_addr: &ServerAddress, timeout: Duration) -> Result<Socks5Stream<TcpStream>, Error> {
+        let socks_server = format!("{}:{}", self.host.clone(), self.port);
+        println!("{}", socks_server);
+        
+        let socks_connection = future::timeout(
+            timeout,
+             Socks5Stream::connect(
+                socks_server,
+                target_addr.host.clone(),
+                target_addr.port,
+                Config::default(),
+            
+            )
+        );
+        match socks_connection
+        .await? {
+            Ok(socks5_stream) => Ok(socks5_stream),
+            Err(e) => Err(Error::Socks5Error(e))
+        }
+
+    }
+}
+
+#[cfg(feature = "socks5")]
+impl Display for Socks5Config {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}:{} user: {} password: xxx", self.host, self.port, self.user.clone().unwrap_or("None".to_string()))
+    }
+}
+
+#[derive(Clone, Debug)]
+pub enum ConnectionType {
+    Direct,
+    
+    #[cfg(feature = "socks5")]
+    Socks5(Socks5Config) 
+}
+
+
 /// Configures connection reuse behavior
 #[derive(Clone, Debug, Copy)]
 #[cfg_attr(
@@ -100,6 +151,7 @@ pub struct SmtpClient {
     /// Socket we are connecting to
     server_addr: ServerAddress,
     /// TLS security configuration
+    connection_type: ConnectionType,
     security: ClientSecurity,
     /// Enable UTF8 mailboxes in envelope or headers
     smtp_utf8: bool,
@@ -125,11 +177,10 @@ impl SmtpClient {
     ///
     /// Consider using [`SmtpClient::new_simple`] instead, if possible.
     pub fn with_security(server_addr: ServerAddress, security: ClientSecurity) -> SmtpClient {
-        // TODO: Move to SmtpTransport.connect
-        // let mut addresses = addr.to_socket_addrs().await?;
         SmtpClient {
             server_addr,
             security,
+            connection_type: ConnectionType::Direct,
             smtp_utf8: false,
             credentials: None,
             connection_reuse: ConnectionReuseParameters::NoReuse,
@@ -155,51 +206,22 @@ impl SmtpClient {
     }
 
     #[cfg(feature = "socks5")]
-    pub async fn new_socks5(
-        server_addr: ServerAddress,
-        credentials: Option<Credentials>,
-        timeout: Duration,
-        socks5_host_port: String,
-    ) -> Result<SmtpTransport, Error> {
+    pub fn new_host_port(
+        host: String,
+        port: u16,        
+    ) -> SmtpClient {
         let tls = async_native_tls::TlsConnector::new();
 
-        let tls_parameters = ClientTlsParameters::new(server_addr.host.clone(), tls);
+        let tls_parameters = ClientTlsParameters::new(host.to_string(), tls);
 
-        let socks5_stream = future::timeout(
-            timeout,
-            Socks5Stream::connect(
-                socks5_host_port,
-                server_addr.host.clone(),
-                server_addr.port,
-                Config::default(),
-            ),
+        SmtpClient::with_security(
+            ServerAddress::new(host, port),
+            ClientSecurity::Wrapper(tls_parameters),
         )
-        .await??;
-
-        let mut transport = SmtpClient {
-            // This should never be used and is just to make the struct happy
-            server_addr,
-            security: ClientSecurity::Wrapper(tls_parameters),
-            smtp_utf8: false,
-            credentials,
-            connection_reuse: ConnectionReuseParameters::NoReuse,
-            hello_name: Default::default(),
-            authentication_mechanism: None,
-            force_set_auth: false,
-            timeout: Some(timeout),
-        }
-        .into_transport();
-
-        println!("Successfully connected through socks5");
-
-        transport
-            .connect_with_stream(NetworkStream::Socks5Stream(socks5_stream))
-            .await?;
-        Ok(transport)
     }
 
     /// Creates a new local SMTP client to port 25
-    pub async fn new_unencrypted_localhost() -> SmtpClient {
+    pub fn new_unencrypted_localhost() -> SmtpClient {
         SmtpClient::with_security(
             ServerAddress::new("localhost".to_string(), SMTP_PORT),
             ClientSecurity::None,
@@ -221,6 +243,16 @@ impl SmtpClient {
     /// Enable connection reuse
     pub fn connection_reuse(mut self, parameters: ConnectionReuseParameters) -> SmtpClient {
         self.connection_reuse = parameters;
+        self
+    }
+
+    pub fn use_socks5(mut self, socks5_config: Socks5Config) -> Self {
+        self.connection_type = ConnectionType::Socks5(socks5_config);
+        self    
+    }
+    
+    pub fn connection_type(mut self, connection_type: ConnectionType) -> Self {
+        self.connection_type = connection_type;
         self
     }
 
@@ -345,9 +377,26 @@ impl<'a> SmtpTransport {
 
         Ok(())
     }
+    
+    pub async fn connect(&mut self) -> Result<(), Error> {
+        match &self.client_info.connection_type {
+            ConnectionType::Direct => self.connect_direct().await,
+            
+            #[cfg(feature = "socks5")]
+            ConnectionType::Socks5 ( socks5 ) => {
+                println!("Trying to connect with socks5...");
+                let socks5_stream = socks5.connect(
+                    &self.client_info.server_addr,
+                    self.client_info.timeout.unwrap_or(Duration::from_millis(100))
+                ).await?; 
+                println!("Connected through socks5");
+                self.connect_with_stream(NetworkStream::Socks5Stream(socks5_stream)).await
+            }
+        }
+    }
 
     /// Try to connect, if not already connected.
-    pub async fn connect(&mut self) -> Result<(), Error> {
+    pub async fn connect_direct(&mut self) -> Result<(), Error> {
         // Check if the connection is still available
         if (self.state.connection_reuse_count > 0) && (!self.client.is_connected()) {
             self.close().await?;
