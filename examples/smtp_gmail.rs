@@ -19,9 +19,7 @@ fn main() {
         );
 
         // Open a remote connection to gmail
-        let mut mailer = SmtpClient::new("smtp.gmail.com")
-            .await
-            .unwrap()
+        let mut mailer = SmtpClient::new("smtp.gmail.com".to_string())
             .credentials(creds)
             .into_transport();
 
