@@ -1,7 +1,6 @@
 use std::fmt::Display;
 use std::time::Duration;
 
-use async_std::net::TcpStream;
 use async_std::net::{SocketAddr, ToSocketAddrs};
 use async_std::pin::Pin;
 use async_trait::async_trait;
@@ -21,7 +20,7 @@ use crate::{SendableEmail, Transport};
 #[cfg(feature = "socks5")]
 use crate::smtp::client::net::NetworkStream;
 #[cfg(feature = "socks5")]
-use async_std::future;
+use async_std::{future, net::TcpStream};
 #[cfg(feature = "socks5")]
 use fast_socks5::client::{Config, Socks5Stream};
 
@@ -51,8 +50,8 @@ pub enum ClientSecurity {
 
 #[derive(Clone, Debug)]
 pub struct ServerAddress {
-    host: String,
-    port: u16,
+    pub host: String,
+    pub port: u16,
 }
 
 impl ServerAddress {
@@ -78,12 +77,26 @@ impl Display for ServerAddress {
 pub struct Socks5Config {
     pub host: String,
     pub port: u16,
-    pub user: Option<String>,
-    pub password: Option<String>,
+    pub user_password: Option<(String, String)>,
 }
 
 #[cfg(feature = "socks5")]
 impl Socks5Config {
+    pub fn new(host: String, port: u16) -> Self {
+        Socks5Config {
+            host,
+            port,
+            user_password: None
+        }
+    }
+
+    pub fn new_with_user_pass(host: String, port: u16, user: String, password: String) -> Self {
+        Socks5Config {
+            host,
+            port,
+            user_password: Some((user, password))
+        }
+    }
     pub async fn connect(
         &self,
         target_addr: &ServerAddress,
@@ -92,19 +105,33 @@ impl Socks5Config {
         let socks_server = format!("{}:{}", self.host.clone(), self.port);
         println!("{}", socks_server);
 
-        let socks_connection = future::timeout(
-            timeout,
-            Socks5Stream::connect(
+      if let Some((user, password)) = self.user_password.as_ref() {
+            let socks_connection = future::timeout(timeout, Socks5Stream::connect_with_password(
+                socks_server,
+                target_addr.host.clone(),
+                target_addr.port,
+                user.into(),
+                password.into(),
+                Config::default(),
+            ));
+            match socks_connection.await? {
+                Ok(socks5_stream) => Ok(socks5_stream),
+                Err(e) => Err(Error::Socks5Error(e)),
+            }
+        } else {      
+            let socks_connection = future::timeout(timeout, Socks5Stream::connect(
                 socks_server,
                 target_addr.host.clone(),
                 target_addr.port,
                 Config::default(),
-            ),
-        );
-        match socks_connection.await? {
-            Ok(socks5_stream) => Ok(socks5_stream),
-            Err(e) => Err(Error::Socks5Error(e)),
+            ));
+            match socks_connection.await? {
+                Ok(socks5_stream) => Ok(socks5_stream),
+                Err(e) => Err(Error::Socks5Error(e)),
+            }
         }
+    
+
     }
 }
 
@@ -113,15 +140,20 @@ impl Display for Socks5Config {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "{}:{} user: {} password: xxx",
+            "{}:{} {}",
             self.host,
             self.port,
-            self.user.clone().unwrap_or_else(|| "None".to_string())
+            if let Some((user, _password)) = self.user_password.as_ref() {
+                format!("user: {} password: ***", user)
+            } else {
+                "".to_string()
+            }
         )
     }
 }
 
 #[derive(Clone, Debug)]
+#[allow(missing_copy_implementations)]
 pub enum ConnectionType {
     Direct,
 
@@ -201,17 +233,9 @@ impl SmtpClient {
     /// Creates an encrypted transport over submissions port, using the provided domain
     /// to validate TLS certificates.
     pub fn new(domain: String) -> SmtpClient {
-        let tls = async_native_tls::TlsConnector::new();
-
-        let tls_parameters = ClientTlsParameters::new(domain.to_string(), tls);
-
-        SmtpClient::with_security(
-            ServerAddress::new(domain, SUBMISSIONS_PORT),
-            ClientSecurity::Wrapper(tls_parameters),
-        )
+        SmtpClient::new_host_port(domain, SUBMISSIONS_PORT)
     }
 
-    #[cfg(feature = "socks5")]
     pub fn new_host_port(host: String, port: u16) -> SmtpClient {
         let tls = async_native_tls::TlsConnector::new();
 
@@ -627,10 +651,6 @@ impl<'a> SmtpTransport {
     /// Try to connect and then send a message.
     pub async fn connect_and_send(&mut self, email: SendableEmail) -> SmtpResult {
         self.connect().await?;
-        self.send(email).await
-    }
-
-    pub async fn send2(&mut self, email: SendableEmail) -> SmtpResult {
         self.send(email).await
     }
 }
