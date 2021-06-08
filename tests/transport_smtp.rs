@@ -1,7 +1,7 @@
 #[cfg(test)]
 #[cfg(feature = "smtp-transport")]
 mod test {
-    use async_smtp::{ClientSecurity, Envelope, SendableEmail, SmtpClient};
+    use async_smtp::{ClientSecurity, Envelope, SendableEmail, SmtpClient, ServerAddress};
 
     #[async_attributes::test]
     #[ignore] // ignored as this needs a running server
@@ -20,9 +20,7 @@ mod test {
         );
 
         println!("connecting");
-        let mut transport = SmtpClient::with_security("127.0.0.1:3025", ClientSecurity::None)
-            .await
-            .unwrap()
+        let mut transport = SmtpClient::with_security(ServerAddress { host: "127.0.0.1".to_string(), port: 3025 }, ClientSecurity::None)
             .into_transport();
 
         println!("sending");
