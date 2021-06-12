@@ -72,13 +72,15 @@ impl Display for ServerAddress {
     }
 }
 
+
 #[cfg(feature = "socks5")]
-#[derive(Clone, Debug)]
+#[derive(Default, Clone, Debug, PartialEq)]
 pub struct Socks5Config {
     pub host: String,
     pub port: u16,
     pub user_password: Option<(String, String)>,
 }
+
 
 #[cfg(feature = "socks5")]
 impl Socks5Config {
@@ -105,31 +107,29 @@ impl Socks5Config {
         let socks_server = format!("{}:{}", self.host.clone(), self.port);
         println!("{}", socks_server);
 
-      if let Some((user, password)) = self.user_password.as_ref() {
-            let socks_connection = future::timeout(timeout, Socks5Stream::connect_with_password(
+        let socks_connection = if let Some((user, password)) = self.user_password.as_ref() {
+            future::timeout(timeout, Socks5Stream::connect_with_password(
                 socks_server,
                 target_addr.host.clone(),
                 target_addr.port,
                 user.into(),
                 password.into(),
                 Config::default(),
-            ));
-            match socks_connection.await? {
-                Ok(socks5_stream) => Ok(socks5_stream),
-                Err(e) => Err(Error::Socks5Error(e)),
-            }
+            )).await
         } else {      
-            let socks_connection = future::timeout(timeout, Socks5Stream::connect(
+            future::timeout(timeout, Socks5Stream::connect(
                 socks_server,
                 target_addr.host.clone(),
                 target_addr.port,
                 Config::default(),
-            ));
-            match socks_connection.await? {
-                Ok(socks5_stream) => Ok(socks5_stream),
-                Err(e) => Err(Error::Socks5Error(e)),
-            }
+            )).await
+        };
+
+        match socks_connection? {
+            Ok(socks5_stream) => Ok(socks5_stream),
+            Err(e) => Err(Error::Socks5Error(e)),
         }
+        
     
 
     }
@@ -151,6 +151,9 @@ impl Display for Socks5Config {
         )
     }
 }
+
+
+
 
 #[derive(Clone, Debug)]
 #[allow(missing_copy_implementations)]
