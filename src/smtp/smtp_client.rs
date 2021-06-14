@@ -58,12 +58,6 @@ impl ServerAddress {
     pub fn new(host: String, port: u16) -> ServerAddress {
         ServerAddress { host, port }
     }
-    pub fn to_socket_addr(&self) -> Result<SocketAddr, Error> {
-        match format!("{}:{}", self.host, self.port).parse::<SocketAddr>() {
-            Ok(socket_addr) => Ok(socket_addr),
-            Err(e) => Err(Error::AddrParseError(e)),
-        }
-    }
 }
 
 impl Display for ServerAddress {
@@ -446,10 +440,10 @@ impl<'a> SmtpTransport {
             return Ok(());
         }
 
-        let socket_addr = self.client_info.server_addr.to_socket_addr()?;
+        println!("{}", self.client_info.server_addr);
 
         // Perform dns lookup if needed
-        let mut addresses = socket_addr.to_socket_addrs().await?;
+        let mut addresses = self.client_info.server_addr.to_string().to_socket_addrs().await?;
 
         match addresses.next() {
             Some(addr) => {
