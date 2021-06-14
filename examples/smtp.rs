@@ -15,8 +15,6 @@ fn main() {
 
         // Open a local connection on port 25
         let mut mailer = SmtpClient::new_unencrypted_localhost()
-            .await
-            .unwrap()
             .into_transport();
         // Send the email
         let result = mailer.connect_and_send(email).await;
