@@ -54,7 +54,7 @@ pub enum Error {
     #[error("no server info")]
     NoServerInfo,
 
-    #[error("address parse error")]
+    #[error("address parse error: {0}")]
     AddrParseError(#[from] AddrParseError),
 
     #[cfg(feature = "socks5")]
