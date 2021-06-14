@@ -58,7 +58,7 @@ pub enum Error {
     AddrParseError(#[from] AddrParseError),
 
     #[cfg(feature = "socks5")]
-    #[error("socks5 error")]
+    #[error("socks5 error {0}")]
     Socks5Error(#[from] fast_socks5::SocksError),
 }
 
