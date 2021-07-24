@@ -6,7 +6,6 @@ use async_std::io::{self, Cursor, Read};
 use async_std::pin::Pin;
 use async_std::prelude::*;
 use async_std::task::{Context, Poll};
-use fast_chemail::is_valid_email;
 use pin_project::pin_project;
 
 use crate::error::EmailResult;
@@ -22,7 +21,11 @@ pub struct EmailAddress(String);
 
 impl EmailAddress {
     pub fn new(address: String) -> EmailResult<EmailAddress> {
-        if !is_valid_email(&address) && !address.ends_with("localhost") {
+        // Do basic checks to avoid injection of control characters into SMTP protocol.  Actual
+        // email validation should be done by the server.
+        if address.chars().any(|c| {
+            !c.is_ascii() || c.is_ascii_control() || c.is_ascii_whitespace() || c == '<' || c == '>'
+        }) {
             return Err(Error::InvalidEmailAddress);
         }
 
@@ -173,5 +176,25 @@ impl SendableEmail {
         let mut message_content = String::new();
         self.message.read_to_string(&mut message_content).await?;
         Ok(message_content)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_email_address() {
+        assert!(EmailAddress::new("foobar@example.org".to_string()).is_ok());
+        assert!(EmailAddress::new("foobar@localhost".to_string()).is_ok());
+        assert!(EmailAddress::new("foo\rbar@localhost".to_string()).is_err());
+        assert!(EmailAddress::new("foobar@localhost".to_string()).is_ok());
+        assert!(EmailAddress::new(
+            "617b5772c6d10feda41fc6e0e43b976c4cc9383d3729310d3dc9e1332f0d9acd@yggmail".to_string()
+        )
+        .is_ok());
+        assert!(EmailAddress::new(">foobar@example.org".to_string()).is_err());
+        assert!(EmailAddress::new("foo bar@example.org".to_string()).is_err());
+        assert!(EmailAddress::new("foobar@exa\r\nmple.org".to_string()).is_err());
     }
 }
