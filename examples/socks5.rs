@@ -1,9 +1,8 @@
-use anyhow;
 use async_smtp::smtp::authentication::Credentials;
 use async_smtp::smtp::Socks5Config;
 use async_smtp::{EmailAddress, Envelope, SendableEmail, SmtpClient};
 
-fn main() -> Result<(), anyhow::Error> {
+fn main() {
     env_logger::init();
     async_std::task::block_on(async move {
         let creds = Credentials::new("user".to_string(), "pass".to_string());
@@ -35,7 +34,5 @@ fn main() -> Result<(), anyhow::Error> {
         }
 
         assert!(result.is_ok());
-
-        Ok::<(), anyhow::Error>(())
     })
 }
