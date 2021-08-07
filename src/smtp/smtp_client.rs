@@ -402,6 +402,7 @@ impl<'a> SmtpTransport {
         Ok(())
     }
 
+    /// Try to connect with the configured connection type, if not already connected.
     pub async fn connect(&mut self) -> Result<(), Error> {
         match &self.client_info.connection_type {
             ConnectionType::Direct => self.connect_direct().await,
@@ -422,7 +423,7 @@ impl<'a> SmtpTransport {
         }
     }
 
-    /// Try to connect, if not already connected.
+    /// Try to connect directly, if not already connected.
     pub async fn connect_direct(&mut self) -> Result<(), Error> {
         // Check if the connection is still available
         if (self.state.connection_reuse_count > 0) && (!self.client.is_connected()) {
