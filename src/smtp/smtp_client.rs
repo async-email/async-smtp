@@ -66,7 +66,6 @@ impl Display for ServerAddress {
     }
 }
 
-
 #[cfg(feature = "socks5")]
 #[derive(Default, Clone, Debug, PartialEq)]
 pub struct Socks5Config {
@@ -75,14 +74,13 @@ pub struct Socks5Config {
     pub user_password: Option<(String, String)>,
 }
 
-
 #[cfg(feature = "socks5")]
 impl Socks5Config {
     pub fn new(host: String, port: u16) -> Self {
         Socks5Config {
             host,
             port,
-            user_password: None
+            user_password: None,
         }
     }
 
@@ -90,7 +88,7 @@ impl Socks5Config {
         Socks5Config {
             host,
             port,
-            user_password: Some((user, password))
+            user_password: Some((user, password)),
         }
     }
     pub async fn connect(
@@ -102,30 +100,35 @@ impl Socks5Config {
         println!("{}", socks_server);
 
         let socks_connection = if let Some((user, password)) = self.user_password.as_ref() {
-            future::timeout(timeout, Socks5Stream::connect_with_password(
-                socks_server,
-                target_addr.host.clone(),
-                target_addr.port,
-                user.into(),
-                password.into(),
-                Config::default(),
-            )).await
-        } else {      
-            future::timeout(timeout, Socks5Stream::connect(
-                socks_server,
-                target_addr.host.clone(),
-                target_addr.port,
-                Config::default(),
-            )).await
+            future::timeout(
+                timeout,
+                Socks5Stream::connect_with_password(
+                    socks_server,
+                    target_addr.host.clone(),
+                    target_addr.port,
+                    user.into(),
+                    password.into(),
+                    Config::default(),
+                ),
+            )
+            .await
+        } else {
+            future::timeout(
+                timeout,
+                Socks5Stream::connect(
+                    socks_server,
+                    target_addr.host.clone(),
+                    target_addr.port,
+                    Config::default(),
+                ),
+            )
+            .await
         };
 
         match socks_connection? {
             Ok(socks5_stream) => Ok(socks5_stream),
             Err(e) => Err(Error::Socks5Error(e)),
         }
-        
-    
-
     }
 }
 
@@ -145,9 +148,6 @@ impl Display for Socks5Config {
         )
     }
 }
-
-
-
 
 #[derive(Clone, Debug)]
 #[allow(missing_copy_implementations)]
@@ -443,7 +443,12 @@ impl<'a> SmtpTransport {
         println!("{}", self.client_info.server_addr);
 
         // Perform dns lookup if needed
-        let mut addresses = self.client_info.server_addr.to_string().to_socket_addrs().await?;
+        let mut addresses = self
+            .client_info
+            .server_addr
+            .to_string()
+            .to_socket_addrs()
+            .await?;
 
         match addresses.next() {
             Some(addr) => {
