@@ -97,7 +97,6 @@ impl Socks5Config {
         timeout: Duration,
     ) -> Result<Socks5Stream<TcpStream>, Error> {
         let socks_server = format!("{}:{}", self.host.clone(), self.port);
-        println!("{}", socks_server);
 
         let socks_connection = if let Some((user, password)) = self.user_password.as_ref() {
             future::timeout(
@@ -409,7 +408,6 @@ impl<'a> SmtpTransport {
 
             #[cfg(feature = "socks5")]
             ConnectionType::Socks5(socks5) => {
-                println!("Trying to connect with socks5...");
                 let socks5_stream = socks5
                     .connect(
                         &self.client_info.server_addr,
@@ -418,7 +416,6 @@ impl<'a> SmtpTransport {
                             .unwrap_or_else(|| Duration::from_millis(100)),
                     )
                     .await?;
-                println!("Connected through socks5");
                 self.connect_with_stream(NetworkStream::Socks5Stream(socks5_stream))
                     .await
             }
@@ -439,8 +436,6 @@ impl<'a> SmtpTransport {
             );
             return Ok(());
         }
-
-        println!("{}", self.client_info.server_addr);
 
         // Perform dns lookup if needed
         let mut addresses = self
