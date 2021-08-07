@@ -1,7 +1,7 @@
 use std::fmt::Display;
 use std::time::Duration;
 
-use async_std::net::{SocketAddr, ToSocketAddrs};
+use async_std::net::ToSocketAddrs;
 use async_std::pin::Pin;
 use async_trait::async_trait;
 use log::{debug, info};
