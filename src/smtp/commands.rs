@@ -191,7 +191,6 @@ pub struct VrfyCommand {
 
 impl Display for VrfyCommand {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        #[cfg_attr(feature = "cargo-clippy", allow(clippy::write_with_newline))]
         write!(f, "VRFY {}\r\n", self.argument)
     }
 }
