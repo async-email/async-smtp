@@ -1,16 +1,13 @@
-use async_smtp::{
-    smtp::ConnectionReuseParameters, ClientSecurity, EmailAddress, Envelope, SendableEmail,
-    SmtpClient, Transport,
-};
+use async_smtp::{ClientSecurity, EmailAddress, Envelope, SendableEmail, ServerAddress, SmtpClient, Transport, smtp::ConnectionReuseParameters};
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
-const SERVER: &str = "127.0.0.1:2525";
+const SERVER_ADDR: &str = "127.0.0.1";
+const SERVER_PORT: u16 = 2525;
 
 fn bench_simple_send(c: &mut Criterion) {
     let mut sender = async_std::task::block_on(async move {
-        SmtpClient::with_security(SERVER, ClientSecurity::None).await
+        SmtpClient::with_security(ServerAddress::new(SERVER_ADDR.to_string(), SERVER_PORT), ClientSecurity::None)
     })
-    .unwrap()
     .into_transport();
 
     c.bench_function("send email", move |b| {
@@ -37,9 +34,8 @@ fn bench_simple_send(c: &mut Criterion) {
 
 fn bench_reuse_send(c: &mut Criterion) {
     let mut sender = async_std::task::block_on(async move {
-        SmtpClient::with_security(SERVER, ClientSecurity::None).await
+        SmtpClient::with_security(ServerAddress::new(SERVER_ADDR.to_string(), SERVER_PORT), ClientSecurity::None)
     })
-    .unwrap()
     .connection_reuse(ConnectionReuseParameters::ReuseUnlimited)
     .into_transport();
     c.bench_function("send email with connection reuse", move |b| {
