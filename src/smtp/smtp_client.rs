@@ -100,8 +100,21 @@ impl Socks5Config {
 
         let socks_connection = if let Some((user, password)) = self.user_password.as_ref() {
             match timeout {
-                Some(timeout) => future::timeout(
-                    timeout,
+                Some(timeout) => {
+                    future::timeout(
+                        timeout,
+                        Socks5Stream::connect_with_password(
+                            socks_server,
+                            target_addr.host.clone(),
+                            target_addr.port,
+                            user.into(),
+                            password.into(),
+                            Config::default(),
+                        ),
+                    )
+                    .await?
+                }
+                None => {
                     Socks5Stream::connect_with_password(
                         socks_server,
                         target_addr.host.clone(),
@@ -109,35 +122,33 @@ impl Socks5Config {
                         user.into(),
                         password.into(),
                         Config::default(),
-                    ),
-                ).await?,
-                None => Socks5Stream::connect_with_password(
-                    socks_server,
-                    target_addr.host.clone(),
-                    target_addr.port,
-                    user.into(),
-                    password.into(),
-                    Config::default(),
-                ).await
+                    )
+                    .await
+                }
             }
-            
         } else {
             match timeout {
-                Some(timeout) => future::timeout(
-                    timeout,
+                Some(timeout) => {
+                    future::timeout(
+                        timeout,
+                        Socks5Stream::connect(
+                            socks_server,
+                            target_addr.host.clone(),
+                            target_addr.port,
+                            Config::default(),
+                        ),
+                    )
+                    .await?
+                }
+                None => {
                     Socks5Stream::connect(
                         socks_server,
                         target_addr.host.clone(),
                         target_addr.port,
                         Config::default(),
-                    ),
-                ).await?,
-                None => Socks5Stream::connect(
-                    socks_server,
-                    target_addr.host.clone(),
-                    target_addr.port,
-                    Config::default(),
-                ).await
+                    )
+                    .await
+                }
             }
         };
 
@@ -427,11 +438,7 @@ impl<'a> SmtpTransport {
             #[cfg(feature = "socks5")]
             ConnectionType::Socks5(socks5) => {
                 let socks5_stream = socks5
-                    .connect(
-                        &self.client_info.server_addr,
-                        self.client_info
-                            .timeout,
-                    )
+                    .connect(&self.client_info.server_addr, self.client_info.timeout)
                     .await?;
                 self.connect_with_stream(NetworkStream::Socks5Stream(socks5_stream))
                     .await
