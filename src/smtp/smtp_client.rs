@@ -16,7 +16,6 @@ use crate::smtp::commands::*;
 use crate::smtp::error::{Error, SmtpResult};
 use crate::smtp::extension::{ClientId, Extension, MailBodyParameter, MailParameter, ServerInfo};
 use crate::{SendableEmail, Transport};
-use async_std::io::{self, ErrorKind};
 
 #[cfg(feature = "socks5")]
 use crate::smtp::client::net::NetworkStream;
