@@ -13,10 +13,9 @@ use async_trait::async_trait;
 use fast_socks5::client::Socks5Stream;
 use pin_project::pin_project;
 
-use crate::ServerAddress;
 use crate::smtp::client::mock::MockStream;
 use crate::smtp::Socks5Config;
-
+use crate::ServerAddress;
 
 /// Parameters to use for secure clients
 pub struct ClientTlsParameters {
@@ -73,7 +72,6 @@ impl NetworkStream {
                 Ipv4Addr::new(127, 0, 0, 1),
                 80,
             ))),
-
         }
     }
 
@@ -141,7 +139,7 @@ impl Write for NetworkStream {
             NetworkStreamProj::TlsSocks5Stream(s) => {
                 let _: Pin<&mut TlsStream<Socks5Stream<TcpStream>>> = s;
                 s.poll_write(cx, buf)
-            },
+            }
             NetworkStreamProj::Mock(s) => {
                 let _: Pin<&mut MockStream> = s;
                 s.poll_write(cx, buf)
@@ -165,7 +163,7 @@ impl Write for NetworkStream {
             NetworkStreamProj::TlsSocks5Stream(s) => {
                 let _: Pin<&mut TlsStream<Socks5Stream<TcpStream>>> = s;
                 s.poll_flush(cx)
-            },
+            }
             NetworkStreamProj::Mock(s) => {
                 let _: Pin<&mut MockStream> = s;
                 s.poll_flush(cx)
@@ -189,7 +187,7 @@ impl Write for NetworkStream {
             NetworkStreamProj::TlsSocks5Stream(s) => {
                 let _: Pin<&mut TlsStream<Socks5Stream<TcpStream>>> = s;
                 s.poll_close(cx)
-            },
+            }
             NetworkStreamProj::Mock(s) => {
                 let _: Pin<&mut MockStream> = s;
                 s.poll_close(cx)
@@ -212,7 +210,7 @@ pub trait Connector: Sized {
         addr: &ServerAddress,
         timeout: Option<Duration>,
         tls_parameters: Option<&ClientTlsParameters>,
-    )-> io::Result<Self>;
+    ) -> io::Result<Self>;
     /// Upgrades to TLS connection
     async fn upgrade_tls(self, tls_parameters: &ClientTlsParameters) -> io::Result<Self>;
 
@@ -258,12 +256,9 @@ impl Connector for NetworkStream {
         addr: &ServerAddress,
         timeout: Option<Duration>,
         tls_parameters: Option<&ClientTlsParameters>,
-    )-> io::Result<NetworkStream> {
-        
-        let socks5_stream = socks5
-                    .connect(addr, timeout)
-                    .await?;
-        
+    ) -> io::Result<NetworkStream> {
+        let socks5_stream = socks5.connect(addr, timeout).await?;
+
         match tls_parameters {
             Some(context) => match timeout {
                 Some(duration) => async_std::future::timeout(

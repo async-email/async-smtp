@@ -101,21 +101,19 @@ impl Socks5Config {
 
         let socks_connection = if let Some((user, password)) = self.user_password.as_ref() {
             match timeout {
-                Some(timeout) => {
-                    async_std::future::timeout(
-                        timeout,
-                        Socks5Stream::connect_with_password(
-                            socks_server,
-                            target_addr.host.clone(),
-                            target_addr.port,
-                            user.into(),
-                            password.into(),
-                            Config::default(),
-                        ),
-                    )
-                    .await
-                    .map_err(|e| io::Error::new(ErrorKind::TimedOut, e))?
-                }
+                Some(timeout) => async_std::future::timeout(
+                    timeout,
+                    Socks5Stream::connect_with_password(
+                        socks_server,
+                        target_addr.host.clone(),
+                        target_addr.port,
+                        user.into(),
+                        password.into(),
+                        Config::default(),
+                    ),
+                )
+                .await
+                .map_err(|e| io::Error::new(ErrorKind::TimedOut, e))?,
                 None => {
                     Socks5Stream::connect_with_password(
                         socks_server,
@@ -130,19 +128,17 @@ impl Socks5Config {
             }
         } else {
             match timeout {
-                Some(timeout) => {
-                    async_std::future::timeout(
-                        timeout,
-                        Socks5Stream::connect(
-                            socks_server,
-                            target_addr.host.clone(),
-                            target_addr.port,
-                            Config::default(),
-                        ),
-                    )
-                    .await
-                    .map_err(|e| io::Error::new(ErrorKind::TimedOut, e))?
-                }
+                Some(timeout) => async_std::future::timeout(
+                    timeout,
+                    Socks5Stream::connect(
+                        socks_server,
+                        target_addr.host.clone(),
+                        target_addr.port,
+                        Config::default(),
+                    ),
+                )
+                .await
+                .map_err(|e| io::Error::new(ErrorKind::TimedOut, e))?,
                 None => {
                     Socks5Stream::connect(
                         socks_server,
@@ -157,7 +153,10 @@ impl Socks5Config {
 
         match socks_connection {
             Ok(socks5_stream) => Ok(socks5_stream),
-            Err(e) => Err(io::Error::new(ErrorKind::ConnectionRefused, Error::Socks5Error(e))),
+            Err(e) => Err(io::Error::new(
+                ErrorKind::ConnectionRefused,
+                Error::Socks5Error(e),
+            )),
         }
     }
 }
@@ -526,11 +525,10 @@ impl<'a> SmtpTransport {
             .await?;
 
         client.set_timeout(self.client_info.timeout);
-        let _response =
-            super::client::with_timeout(self.client_info.timeout.as_ref(), async {
-                client.read_response().await
-            })
-            .await?;
+        let _response = super::client::with_timeout(self.client_info.timeout.as_ref(), async {
+            client.read_response().await
+        })
+        .await?;
 
         self.post_connect().await
     }

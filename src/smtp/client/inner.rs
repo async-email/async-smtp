@@ -125,10 +125,15 @@ impl<S: Connector + Write + Read + Unpin> InnerClient<S> {
 
     pub async fn connect_socks5(
         &mut self,
-        socks5: &Socks5Config, addr: &ServerAddress, timeout: Option<Duration>, tls_parameters: Option<&ClientTlsParameters>
+        socks5: &Socks5Config,
+        addr: &ServerAddress,
+        timeout: Option<Duration>,
+        tls_parameters: Option<&ClientTlsParameters>,
     ) -> Result<(), Error> {
-        self.connect_with_stream(Connector::connect_socks5(socks5, addr, timeout, tls_parameters).await?)
-            .await
+        self.connect_with_stream(
+            Connector::connect_socks5(socks5, addr, timeout, tls_parameters).await?,
+        )
+        .await
     }
     /// Connects to a pre-defined stream
     pub async fn connect_with_stream(&mut self, stream: S) -> Result<(), Error> {
