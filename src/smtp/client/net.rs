@@ -254,7 +254,6 @@ impl Connector for NetworkStream {
         }
     }
 
-
     #[cfg(feature = "socks5")]
     async fn connect_socks5(
         socks5: &Socks5Config,

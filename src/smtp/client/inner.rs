@@ -124,7 +124,6 @@ impl<S: Connector + Write + Read + Unpin> InnerClient<S> {
             .await
     }
 
-
     #[cfg(feature = "socks5")]
     pub async fn connect_socks5(
         &mut self,
