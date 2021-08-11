@@ -16,6 +16,7 @@ use crate::smtp::commands::*;
 use crate::smtp::error::{Error, SmtpResult};
 use crate::smtp::extension::{ClientId, Extension, MailBodyParameter, MailParameter, ServerInfo};
 use crate::{SendableEmail, Transport};
+use async_std::io::{self, ErrorKind};
 
 #[cfg(feature = "socks5")]
 use crate::smtp::client::net::NetworkStream;
@@ -95,13 +96,13 @@ impl Socks5Config {
         &self,
         target_addr: &ServerAddress,
         timeout: Option<Duration>,
-    ) -> Result<Socks5Stream<TcpStream>, Error> {
+    ) -> io::Result<Socks5Stream<TcpStream>> {
         let socks_server = format!("{}:{}", self.host.clone(), self.port);
 
         let socks_connection = if let Some((user, password)) = self.user_password.as_ref() {
             match timeout {
                 Some(timeout) => {
-                    future::timeout(
+                    async_std::future::timeout(
                         timeout,
                         Socks5Stream::connect_with_password(
                             socks_server,
@@ -112,7 +113,8 @@ impl Socks5Config {
                             Config::default(),
                         ),
                     )
-                    .await?
+                    .await
+                    .map_err(|e| io::Error::new(ErrorKind::TimedOut, e))?
                 }
                 None => {
                     Socks5Stream::connect_with_password(
@@ -129,7 +131,7 @@ impl Socks5Config {
         } else {
             match timeout {
                 Some(timeout) => {
-                    future::timeout(
+                    async_std::future::timeout(
                         timeout,
                         Socks5Stream::connect(
                             socks_server,
@@ -138,7 +140,8 @@ impl Socks5Config {
                             Config::default(),
                         ),
                     )
-                    .await?
+                    .await
+                    .map_err(|e| io::Error::new(ErrorKind::TimedOut, e))?
                 }
                 None => {
                     Socks5Stream::connect(
@@ -154,7 +157,7 @@ impl Socks5Config {
 
         match socks_connection {
             Ok(socks5_stream) => Ok(socks5_stream),
-            Err(e) => Err(Error::Socks5Error(e)),
+            Err(e) => Err(io::Error::new(ErrorKind::ConnectionRefused, Error::Socks5Error(e))),
         }
     }
 }
@@ -437,11 +440,8 @@ impl<'a> SmtpTransport {
 
             #[cfg(feature = "socks5")]
             ConnectionType::Socks5(socks5) => {
-                let socks5_stream = socks5
-                    .connect(&self.client_info.server_addr, self.client_info.timeout)
-                    .await?;
-                self.connect_with_stream(NetworkStream::Socks5Stream(socks5_stream))
-                    .await
+                let cloned_socks5 = socks5.clone();
+                self.connect_socks5(&cloned_socks5).await
             }
         }
     }
@@ -498,7 +498,7 @@ impl<'a> SmtpTransport {
 
     /// Try to connect to pre-defined stream, if not already connected.
     #[cfg(feature = "socks5")]
-    pub async fn connect_with_stream(&mut self, stream: NetworkStream) -> Result<(), Error> {
+    pub async fn connect_socks5(&mut self, socks5: &Socks5Config) -> Result<(), Error> {
         // Check if the connection is still available
         if (self.state.connection_reuse_count > 0) && (!self.client.is_connected()) {
             self.close().await?;
@@ -512,16 +512,25 @@ impl<'a> SmtpTransport {
             return Ok(());
         }
 
-        {
-            let mut client = Pin::new(&mut self.client);
-            client.connect_with_stream(stream).await?;
+        let mut client = Pin::new(&mut self.client);
+        client
+            .connect_socks5(
+                socks5,
+                &self.client_info.server_addr.clone().to_owned(),
+                self.client_info.timeout,
+                match self.client_info.security {
+                    ClientSecurity::Wrapper(ref tls_parameters) => Some(tls_parameters),
+                    _ => None,
+                },
+            )
+            .await?;
 
-            client.set_timeout(self.client_info.timeout);
-            let _response = super::client::with_timeout(self.client_info.timeout.as_ref(), async {
+        client.set_timeout(self.client_info.timeout);
+        let _response =
+            super::client::with_timeout(self.client_info.timeout.as_ref(), async {
                 client.read_response().await
             })
             .await?;
-        }
 
         self.post_connect().await
     }
