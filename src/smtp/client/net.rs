@@ -296,7 +296,19 @@ impl Connector for NetworkStream {
                     .map_err(|err| io::Error::new(ErrorKind::Other, err))?;
                 Ok(NetworkStream::Tls(tls_stream))
             }
-            _ => Ok(self),
+            NetworkStream::Tls(_) => Ok(self),
+            #[cfg(feature = "socks5")]
+            NetworkStream::Socks5Stream(stream) => {
+                let tls_stream = tls_parameters
+                    .connector
+                    .connect(&tls_parameters.domain, stream)
+                    .await
+                    .map_err(|err| io::Error::new(ErrorKind::Other, err))?;
+                Ok(NetworkStream::TlsSocks5Stream(tls_stream))
+            }
+            #[cfg(feature = "socks5")]
+            NetworkStream::TlsSocks5Stream(_) => Ok(self),
+            NetworkStream::Mock(_) => Ok(self),
         }
     }
 
