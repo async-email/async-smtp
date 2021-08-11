@@ -14,6 +14,8 @@ use fast_socks5::client::Socks5Stream;
 use pin_project::pin_project;
 
 use crate::smtp::client::mock::MockStream;
+
+#[cfg(feature = "socks5")]
 use crate::smtp::Socks5Config;
 use crate::ServerAddress;
 
@@ -205,6 +207,8 @@ pub trait Connector: Sized {
         timeout: Option<Duration>,
         tls_parameters: Option<&ClientTlsParameters>,
     ) -> io::Result<Self>;
+
+    #[cfg(feature = "socks5")]
     async fn connect_socks5(
         socks5: &Socks5Config,
         addr: &ServerAddress,
@@ -251,6 +255,8 @@ impl Connector for NetworkStream {
         }
     }
 
+
+    #[cfg(feature = "socks5")]
     async fn connect_socks5(
         socks5: &Socks5Config,
         addr: &ServerAddress,
@@ -301,6 +307,7 @@ impl Connector for NetworkStream {
             NetworkStream::Tls(_) => true,
             #[cfg(feature = "socks5")]
             NetworkStream::Socks5Stream(_) => false,
+            #[cfg(feature = "socks5")]
             NetworkStream::TlsSocks5Stream(_) => true,
             NetworkStream::Mock(_) => false,
         }

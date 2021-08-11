@@ -15,6 +15,8 @@ use crate::smtp::client::ClientCodec;
 use crate::smtp::commands::*;
 use crate::smtp::error::{Error, SmtpResult};
 use crate::smtp::response::parse_response;
+
+#[cfg(feature = "socks5")]
 use crate::smtp::Socks5Config;
 use crate::ServerAddress;
 
@@ -123,6 +125,8 @@ impl<S: Connector + Write + Read + Unpin> InnerClient<S> {
             .await
     }
 
+
+    #[cfg(feature = "socks5")]
     pub async fn connect_socks5(
         &mut self,
         socks5: &Socks5Config,
