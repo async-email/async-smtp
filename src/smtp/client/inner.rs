@@ -18,6 +18,8 @@ use crate::smtp::response::parse_response;
 
 #[cfg(feature = "socks5")]
 use crate::smtp::Socks5Config;
+#[cfg(feature = "socks5")]
+use crate::ServerAddress;
 
 /// Returns the string replacing all the CRLF with "\<CRLF\>"
 /// Used for debug displays

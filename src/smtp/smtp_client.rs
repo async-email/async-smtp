@@ -16,11 +16,11 @@ use crate::smtp::commands::*;
 use crate::smtp::error::{Error, SmtpResult};
 use crate::smtp::extension::{ClientId, Extension, MailBodyParameter, MailParameter, ServerInfo};
 use crate::{SendableEmail, Transport};
+#[cfg(feature = "socks5")]
+use async_std::io::{self, ErrorKind};
 
 #[cfg(feature = "socks5")]
-use crate::smtp::client::net::NetworkStream;
-#[cfg(feature = "socks5")]
-use async_std::{future, net::TcpStream};
+use async_std::net::TcpStream;
 #[cfg(feature = "socks5")]
 use fast_socks5::client::{Config, Socks5Stream};
 

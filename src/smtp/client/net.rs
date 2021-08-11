@@ -17,6 +17,8 @@ use crate::smtp::client::mock::MockStream;
 
 #[cfg(feature = "socks5")]
 use crate::smtp::Socks5Config;
+#[cfg(feature = "socks5")]
+use crate::ServerAddress;
 
 /// Parameters to use for secure clients
 pub struct ClientTlsParameters {
