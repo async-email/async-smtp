@@ -99,64 +99,37 @@ impl Socks5Config {
         let socks_server = format!("{}:{}", self.host.clone(), self.port);
 
         let socks_connection = if let Some((user, password)) = self.user_password.as_ref() {
-            match timeout {
-                Some(timeout) => async_std::future::timeout(
-                    timeout,
-                    Socks5Stream::connect_with_password(
-                        socks_server,
-                        target_addr.host.clone(),
-                        target_addr.port,
-                        user.into(),
-                        password.into(),
-                        Config::default(),
-                    ),
-                )
-                .await
-                .map_err(|e| io::Error::new(ErrorKind::TimedOut, e))?,
-                None => {
-                    Socks5Stream::connect_with_password(
-                        socks_server,
-                        target_addr.host.clone(),
-                        target_addr.port,
-                        user.into(),
-                        password.into(),
-                        Config::default(),
-                    )
-                    .await
-                }
-            }
+            Socks5Stream::connect_with_password(
+                socks_server,
+                target_addr.host.clone(),
+                target_addr.port,
+                user.into(),
+                password.into(),
+                Config::default(),
+            )
         } else {
-            match timeout {
-                Some(timeout) => async_std::future::timeout(
-                    timeout,
-                    Socks5Stream::connect(
-                        socks_server,
-                        target_addr.host.clone(),
-                        target_addr.port,
-                        Config::default(),
-                    ),
-                )
-                .await
-                .map_err(|e| io::Error::new(ErrorKind::TimedOut, e))?,
-                None => {
-                    Socks5Stream::connect(
-                        socks_server,
-                        target_addr.host.clone(),
-                        target_addr.port,
-                        Config::default(),
-                    )
-                    .await
-                }
-            }
+            Socks5Stream::connect(
+                socks_server,
+                target_addr.host.clone(),
+                target_addr.port,
+                Config::default(),
+            )
         };
 
-        match socks_connection {
-            Ok(socks5_stream) => Ok(socks5_stream),
-            Err(e) => Err(io::Error::new(
+        let socks_connection = if let Some(timeout) = timeout {
+            async_std::future::timeout(timeout, socks_connection)
+                .await
+                .map_err(|e| io::Error::new(ErrorKind::TimedOut, e))?
+        } else {
+            socks_connection.await
+        };
+
+        socks_connection.map_err(|e| {
+            Err(io::Error::new(
                 ErrorKind::ConnectionRefused,
                 Error::Socks5Error(e),
-            )),
-        }
+            ))
+        })
     }
 }
 
