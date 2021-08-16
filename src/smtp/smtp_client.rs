@@ -48,13 +48,17 @@ pub enum ClientSecurity {
     Wrapper(ClientTlsParameters),
 }
 
+/// Server address, basically a combination of a host (domain/ip address) and a port
 #[derive(Clone, Debug)]
 pub struct ServerAddress {
+    /// host, either a domain or an ipv4/v4 address
     pub host: String,
+    /// port number
     pub port: u16,
 }
 
 impl ServerAddress {
+    /// Creates a new ServerAddress from a host and a port
     pub fn new(host: String, port: u16) -> ServerAddress {
         ServerAddress { host, port }
     }
@@ -66,16 +70,21 @@ impl Display for ServerAddress {
     }
 }
 
+/// Struct holding the configuration for a socks5 proxy connection
 #[cfg(feature = "socks5")]
 #[derive(Default, Clone, Debug, PartialEq)]
 pub struct Socks5Config {
+    /// Hostname of the socks5 server
     pub host: String,
+    /// Port number of the socks5 server
     pub port: u16,
+    /// User/password authentication if needed. Can be none if no user/password is needed.
     pub user_password: Option<(String, String)>,
 }
 
 #[cfg(feature = "socks5")]
 impl Socks5Config {
+    /// Creates a new Socks5Config from a hostname and a port number. User/Password will be set to None.
     pub fn new(host: String, port: u16) -> Self {
         Socks5Config {
             host,
@@ -84,6 +93,7 @@ impl Socks5Config {
         }
     }
 
+    /// Creates a new Socks5Config from a hostname, a port number and user/password.
     pub fn new_with_user_pass(host: String, port: u16, user: String, password: String) -> Self {
         Socks5Config {
             host,
@@ -91,6 +101,8 @@ impl Socks5Config {
             user_password: Some((user, password)),
         }
     }
+
+    /// Connect to a target ServerAddress with TCP through the configured socks5 server.
     pub async fn connect(
         &self,
         target_addr: &ServerAddress,
@@ -271,12 +283,14 @@ impl SmtpClient {
         self
     }
 
+    /// Use a socks5 proxy server to connect through
     #[cfg(feature = "socks5")]
     pub fn use_socks5(mut self, socks5_config: Socks5Config) -> Self {
         self.connection_type = ConnectionType::Socks5(socks5_config);
         self
     }
 
+    /// Set the ConnectionType
     pub fn connection_type(mut self, connection_type: ConnectionType) -> Self {
         self.connection_type = connection_type;
         self
@@ -406,95 +420,58 @@ impl<'a> SmtpTransport {
 
     /// Try to connect with the configured connection type, if not already connected.
     pub async fn connect(&mut self) -> Result<(), Error> {
+        // Check if the connection is still available
+        if (self.state.connection_reuse_count > 0) && (!self.client.is_connected()) {
+            self.close().await?;
+        }
+
+        if self.state.connection_reuse_count > 0 {
+            debug!(
+                "connection already established to {}",
+                self.client_info.server_addr
+            );
+            return Ok(());
+        }
+
+        let tls_parameters = match self.client_info.security {
+            ClientSecurity::Wrapper(ref tls_parameters) => Some(tls_parameters),
+            _ => None,
+        };
+
+        let mut client = Pin::new(&mut self.client);
+
         match &self.client_info.connection_type {
-            ConnectionType::Direct => self.connect_direct().await,
+            ConnectionType::Direct => {
+                // Perform dns lookup if needed
+                let mut addresses = self
+                    .client_info
+                    .server_addr
+                    .to_string()
+                    .to_socket_addrs()
+                    .await?;
+
+                if let Some(addr) = addresses.next() {
+                    client
+                        .connect(&addr, self.client_info.timeout, tls_parameters)
+                        .await?;
+                } else {
+                    return Err(Error::Resolution);
+                };
+            }
 
             #[cfg(feature = "socks5")]
             ConnectionType::Socks5(socks5) => {
                 let cloned_socks5 = socks5.clone();
-                self.connect_socks5(&cloned_socks5).await
-            }
-        }
-    }
-
-    /// Try to connect directly, if not already connected.
-    pub async fn connect_direct(&mut self) -> Result<(), Error> {
-        // Check if the connection is still available
-        if (self.state.connection_reuse_count > 0) && (!self.client.is_connected()) {
-            self.close().await?;
-        }
-
-        if self.state.connection_reuse_count > 0 {
-            debug!(
-                "connection already established to {}",
-                self.client_info.server_addr
-            );
-            return Ok(());
-        }
-
-        // Perform dns lookup if needed
-        let mut addresses = self
-            .client_info
-            .server_addr
-            .to_string()
-            .to_socket_addrs()
-            .await?;
-
-        match addresses.next() {
-            Some(addr) => {
-                let mut client = Pin::new(&mut self.client);
                 client
-                    .connect(
-                        &addr,
+                    .connect_socks5(
+                        cloned_socks5,
+                        &self.client_info.server_addr.clone().to_owned(),
                         self.client_info.timeout,
-                        match self.client_info.security {
-                            ClientSecurity::Wrapper(ref tls_parameters) => Some(tls_parameters),
-                            _ => None,
-                        },
+                        tls_parameters,
                     )
                     .await?;
-
-                client.set_timeout(self.client_info.timeout);
-                let _response =
-                    super::client::with_timeout(self.client_info.timeout.as_ref(), async {
-                        client.read_response().await
-                    })
-                    .await?;
             }
-            None => return Err(Error::Resolution),
-        };
-
-        self.post_connect().await
-    }
-
-    /// Try to connect to pre-defined stream, if not already connected.
-    #[cfg(feature = "socks5")]
-    pub async fn connect_socks5(&mut self, socks5: &Socks5Config) -> Result<(), Error> {
-        // Check if the connection is still available
-        if (self.state.connection_reuse_count > 0) && (!self.client.is_connected()) {
-            self.close().await?;
         }
-
-        if self.state.connection_reuse_count > 0 {
-            debug!(
-                "connection already established to {}",
-                self.client_info.server_addr
-            );
-            return Ok(());
-        }
-
-        let mut client = Pin::new(&mut self.client);
-        client
-            .connect_socks5(
-                socks5,
-                &self.client_info.server_addr.clone().to_owned(),
-                self.client_info.timeout,
-                match self.client_info.security {
-                    ClientSecurity::Wrapper(ref tls_parameters) => Some(tls_parameters),
-                    _ => None,
-                },
-            )
-            .await?;
 
         client.set_timeout(self.client_info.timeout);
         let _response = super::client::with_timeout(self.client_info.timeout.as_ref(), async {
