@@ -464,7 +464,7 @@ impl<'a> SmtpTransport {
                 let cloned_socks5 = socks5.clone();
                 client
                     .connect_socks5(
-                        cloned_socks5,
+                        &cloned_socks5,
                         &self.client_info.server_addr.clone().to_owned(),
                         self.client_info.timeout,
                         tls_parameters,
