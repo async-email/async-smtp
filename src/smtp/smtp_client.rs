@@ -108,9 +108,22 @@ impl Socks5Config {
         target_addr: &ServerAddress,
         timeout: Option<Duration>,
     ) -> io::Result<Socks5Stream<TcpStream>> {
+        if let Some(timeout) = timeout {
+            async_std::future::timeout(timeout, self.connect_without_timeout(target_addr))
+                .await
+                .map_err(|e| io::Error::new(ErrorKind::TimedOut, e))?
+        } else {
+            self.connect_without_timeout(target_addr).await
+        }
+    }
+
+    async fn connect_without_timeout(
+        &self,
+        target_addr: &ServerAddress,
+    ) -> io::Result<Socks5Stream<TcpStream>> {
         let socks_server = format!("{}:{}", self.host.clone(), self.port);
 
-        let socks_connection = if let Some((user, password)) = self.user_password.as_ref() {
+        let socks_stream = if let Some((user, password)) = self.user_password.as_ref() {
             Socks5Stream::connect_with_password(
                 socks_server,
                 target_addr.host.clone(),
@@ -119,6 +132,7 @@ impl Socks5Config {
                 password.into(),
                 Config::default(),
             )
+            .await
         } else {
             Socks5Stream::connect(
                 socks_server,
@@ -126,22 +140,16 @@ impl Socks5Config {
                 target_addr.port,
                 Config::default(),
             )
+            .await
         };
 
-        let socks_connection = if let Some(timeout) = timeout {
-            async_std::future::timeout(timeout, socks_connection)
-                .await
-                .map_err(|e| io::Error::new(ErrorKind::TimedOut, e))?
-        } else {
-            socks_connection.await
-        };
-
-        socks_connection.map_err(|e| {
-            Err(io::Error::new(
+        match socks_stream {
+            Ok(socks_stream) => io::Result::Ok(socks_stream),
+            Err(e) => io::Result::Err(io::Error::new(
                 ErrorKind::ConnectionRefused,
                 Error::Socks5Error(e),
-            ))
-        })
+            )),
+        }
     }
 }
 
