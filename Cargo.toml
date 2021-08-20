@@ -61,3 +61,7 @@ required-features = ["smtp-transport"]
 [[example]]
 name = "smtp_gmail"
 required-features = ["smtp-transport"]
+
+[[example]]
+name = "socks5"
+required-features = ["smtp-transport", "socks5"]

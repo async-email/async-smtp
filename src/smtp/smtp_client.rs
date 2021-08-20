@@ -1,7 +1,7 @@
 use std::fmt::Display;
 use std::time::Duration;
 
-use async_std::net::{SocketAddr, ToSocketAddrs};
+use async_std::net::ToSocketAddrs;
 use async_std::pin::Pin;
 use async_trait::async_trait;
 use log::{debug, info};
@@ -11,13 +11,18 @@ use crate::smtp::authentication::{
     Credentials, Mechanism, DEFAULT_ENCRYPTED_MECHANISMS, DEFAULT_UNENCRYPTED_MECHANISMS,
 };
 use crate::smtp::client::net::ClientTlsParameters;
-#[cfg(feature = "socks5")]
-use crate::smtp::client::net::NetworkStream;
 use crate::smtp::client::InnerClient;
 use crate::smtp::commands::*;
 use crate::smtp::error::{Error, SmtpResult};
 use crate::smtp::extension::{ClientId, Extension, MailBodyParameter, MailParameter, ServerInfo};
 use crate::{SendableEmail, Transport};
+#[cfg(feature = "socks5")]
+use async_std::io::{self, ErrorKind};
+
+#[cfg(feature = "socks5")]
+use async_std::net::TcpStream;
+#[cfg(feature = "socks5")]
+use fast_socks5::client::{Config, Socks5Stream};
 
 // Registered port numbers:
 // https://www.iana.
@@ -41,6 +46,137 @@ pub enum ClientSecurity {
     Required(ClientTlsParameters),
     /// Use TLS wrapped connection
     Wrapper(ClientTlsParameters),
+}
+
+/// Server address, basically a combination of a host (domain/ip address) and a port
+#[derive(Clone, Debug)]
+pub struct ServerAddress {
+    /// host, either a domain or an ipv4/v4 address
+    pub host: String,
+    /// port number
+    pub port: u16,
+}
+
+impl ServerAddress {
+    /// Creates a new ServerAddress from a host and a port
+    pub fn new(host: String, port: u16) -> ServerAddress {
+        ServerAddress { host, port }
+    }
+}
+
+impl Display for ServerAddress {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}:{}", self.host, self.port)
+    }
+}
+
+/// Struct holding the configuration for a socks5 proxy connection
+#[cfg(feature = "socks5")]
+#[derive(Default, Clone, Debug, PartialEq)]
+pub struct Socks5Config {
+    /// Hostname of the socks5 server
+    pub host: String,
+    /// Port number of the socks5 server
+    pub port: u16,
+    /// User/password authentication if needed. Can be none if no user/password is needed.
+    pub user_password: Option<(String, String)>,
+}
+
+#[cfg(feature = "socks5")]
+impl Socks5Config {
+    /// Creates a new Socks5Config from a hostname and a port number. User/Password will be set to None.
+    pub fn new(host: String, port: u16) -> Self {
+        Socks5Config {
+            host,
+            port,
+            user_password: None,
+        }
+    }
+
+    /// Creates a new Socks5Config from a hostname, a port number and user/password.
+    pub fn new_with_user_pass(host: String, port: u16, user: String, password: String) -> Self {
+        Socks5Config {
+            host,
+            port,
+            user_password: Some((user, password)),
+        }
+    }
+
+    /// Connect to a target ServerAddress with TCP through the configured socks5 server.
+    pub async fn connect(
+        &self,
+        target_addr: &ServerAddress,
+        timeout: Option<Duration>,
+    ) -> io::Result<Socks5Stream<TcpStream>> {
+        if let Some(timeout) = timeout {
+            async_std::future::timeout(timeout, self.connect_without_timeout(target_addr))
+                .await
+                .map_err(|e| io::Error::new(ErrorKind::TimedOut, e))?
+        } else {
+            self.connect_without_timeout(target_addr).await
+        }
+    }
+
+    async fn connect_without_timeout(
+        &self,
+        target_addr: &ServerAddress,
+    ) -> io::Result<Socks5Stream<TcpStream>> {
+        let socks_server = format!("{}:{}", self.host.clone(), self.port);
+
+        let socks_stream = if let Some((user, password)) = self.user_password.as_ref() {
+            Socks5Stream::connect_with_password(
+                socks_server,
+                target_addr.host.clone(),
+                target_addr.port,
+                user.into(),
+                password.into(),
+                Config::default(),
+            )
+            .await
+        } else {
+            Socks5Stream::connect(
+                socks_server,
+                target_addr.host.clone(),
+                target_addr.port,
+                Config::default(),
+            )
+            .await
+        };
+
+        match socks_stream {
+            Ok(socks_stream) => io::Result::Ok(socks_stream),
+            Err(e) => io::Result::Err(io::Error::new(
+                ErrorKind::ConnectionRefused,
+                Error::Socks5Error(e),
+            )),
+        }
+    }
+}
+
+#[cfg(feature = "socks5")]
+impl Display for Socks5Config {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}:{} {}",
+            self.host,
+            self.port,
+            if let Some((user, _password)) = self.user_password.as_ref() {
+                format!("user: {} password: ***", user)
+            } else {
+                "".to_string()
+            }
+        )
+    }
+}
+
+#[derive(Clone, Debug)]
+#[allow(missing_copy_implementations)]
+pub enum ConnectionType {
+    Direct,
+
+    #[cfg(feature = "socks5")]
+    Socks5(Socks5Config),
 }
 
 /// Configures connection reuse behavior
@@ -69,8 +205,9 @@ pub struct SmtpClient {
     /// Credentials
     credentials: Option<Credentials>,
     /// Socket we are connecting to
-    server_addr: SocketAddr,
+    server_addr: ServerAddress,
     /// TLS security configuration
+    connection_type: ConnectionType,
     security: ClientSecurity,
     /// Enable UTF8 mailboxes in envelope or headers
     smtp_utf8: bool,
@@ -95,46 +232,45 @@ impl SmtpClient {
     /// * A 60 seconds timeout for smtp commands
     ///
     /// Consider using [`SmtpClient::new_simple`] instead, if possible.
-    pub async fn with_security<A: ToSocketAddrs>(
-        addr: A,
-        security: ClientSecurity,
-    ) -> Result<SmtpClient, Error> {
-        let mut addresses = addr.to_socket_addrs().await?;
-
-        match addresses.next() {
-            Some(addr) => Ok(SmtpClient {
-                server_addr: addr,
-                security,
-                smtp_utf8: false,
-                credentials: None,
-                connection_reuse: ConnectionReuseParameters::NoReuse,
-                hello_name: Default::default(),
-                authentication_mechanism: None,
-                force_set_auth: false,
-                timeout: Some(Duration::new(60, 0)),
-            }),
-            None => Err(Error::Resolution),
+    pub fn with_security(server_addr: ServerAddress, security: ClientSecurity) -> SmtpClient {
+        SmtpClient {
+            server_addr,
+            security,
+            connection_type: ConnectionType::Direct,
+            smtp_utf8: false,
+            credentials: None,
+            connection_reuse: ConnectionReuseParameters::NoReuse,
+            hello_name: Default::default(),
+            authentication_mechanism: None,
+            force_set_auth: false,
+            timeout: Some(Duration::new(60, 0)),
         }
     }
 
     /// Simple and secure transport, should be used when possible.
     /// Creates an encrypted transport over submissions port, using the provided domain
     /// to validate TLS certificates.
-    pub async fn new(domain: &str) -> Result<SmtpClient, Error> {
+    pub fn new(domain: String) -> SmtpClient {
+        SmtpClient::new_host_port(domain, SUBMISSIONS_PORT)
+    }
+
+    pub fn new_host_port(host: String, port: u16) -> SmtpClient {
         let tls = async_native_tls::TlsConnector::new();
 
-        let tls_parameters = ClientTlsParameters::new(domain.to_string(), tls);
+        let tls_parameters = ClientTlsParameters::new(host.to_string(), tls);
 
         SmtpClient::with_security(
-            (domain, SUBMISSIONS_PORT),
+            ServerAddress::new(host, port),
             ClientSecurity::Wrapper(tls_parameters),
         )
-        .await
     }
 
     /// Creates a new local SMTP client to port 25
-    pub async fn new_unencrypted_localhost() -> Result<SmtpClient, Error> {
-        SmtpClient::with_security(("localhost", SMTP_PORT), ClientSecurity::None).await
+    pub fn new_unencrypted_localhost() -> SmtpClient {
+        SmtpClient::with_security(
+            ServerAddress::new("localhost".to_string(), SMTP_PORT),
+            ClientSecurity::None,
+        )
     }
 
     /// Enable SMTPUTF8 if the server supports it
@@ -152,6 +288,19 @@ impl SmtpClient {
     /// Enable connection reuse
     pub fn connection_reuse(mut self, parameters: ConnectionReuseParameters) -> SmtpClient {
         self.connection_reuse = parameters;
+        self
+    }
+
+    /// Use a socks5 proxy server to connect through
+    #[cfg(feature = "socks5")]
+    pub fn use_socks5(mut self, socks5_config: Socks5Config) -> Self {
+        self.connection_type = ConnectionType::Socks5(socks5_config);
+        self
+    }
+
+    /// Set the ConnectionType
+    pub fn connection_type(mut self, connection_type: ConnectionType) -> Self {
+        self.connection_type = connection_type;
         self
     }
 
@@ -277,7 +426,7 @@ impl<'a> SmtpTransport {
         Ok(())
     }
 
-    /// Try to connect, if not already connected.
+    /// Try to connect with the configured connection type, if not already connected.
     pub async fn connect(&mut self) -> Result<(), Error> {
         // Check if the connection is still available
         if (self.state.connection_reuse_count > 0) && (!self.client.is_connected()) {
@@ -292,52 +441,51 @@ impl<'a> SmtpTransport {
             return Ok(());
         }
 
-        {
-            let mut client = Pin::new(&mut self.client);
-            client
-                .connect(
-                    &self.client_info.server_addr,
-                    self.client_info.timeout,
-                    match self.client_info.security {
-                        ClientSecurity::Wrapper(ref tls_parameters) => Some(tls_parameters),
-                        _ => None,
-                    },
-                )
-                .await?;
+        let tls_parameters = match self.client_info.security {
+            ClientSecurity::Wrapper(ref tls_parameters) => Some(tls_parameters),
+            _ => None,
+        };
 
-            client.set_timeout(self.client_info.timeout);
-            let _response = super::client::with_timeout(self.client_info.timeout.as_ref(), async {
-                client.read_response().await
-            })
-            .await?;
+        let mut client = Pin::new(&mut self.client);
+
+        match &self.client_info.connection_type {
+            ConnectionType::Direct => {
+                // Perform dns lookup if needed
+                let mut addresses = self
+                    .client_info
+                    .server_addr
+                    .to_string()
+                    .to_socket_addrs()
+                    .await?;
+
+                if let Some(addr) = addresses.next() {
+                    client
+                        .connect(&addr, self.client_info.timeout, tls_parameters)
+                        .await?;
+                } else {
+                    return Err(Error::Resolution);
+                };
+            }
+
+            #[cfg(feature = "socks5")]
+            ConnectionType::Socks5(socks5) => {
+                let cloned_socks5 = socks5.clone();
+                client
+                    .connect_socks5(
+                        &cloned_socks5,
+                        &self.client_info.server_addr.clone().to_owned(),
+                        self.client_info.timeout,
+                        tls_parameters,
+                    )
+                    .await?;
+            }
         }
 
-        self.post_connect().await
-    }
-
-    /// Try to connect to pre-defined stream, if not already connected.
-    #[cfg(feature = "socks5")]
-    pub async fn connect_with_stream(&mut self, stream: NetworkStream) -> Result<(), Error> {
-        // Check if the connection is still available
-        if (self.state.connection_reuse_count > 0) && (!self.client.is_connected()) {
-            self.close().await?;
-        }
-
-        if self.state.connection_reuse_count > 0 {
-            debug!(
-                "connection already established to {}",
-                self.client_info.server_addr
-            );
-            return Ok(());
-        }
-
-        {
-            let mut client = Pin::new(&mut self.client);
-            client.connect_with_stream(stream).await?;
-
-            client.set_timeout(self.client_info.timeout);
-            let _response = client.read_response().await?;
-        }
+        client.set_timeout(self.client_info.timeout);
+        let _response = super::client::with_timeout(self.client_info.timeout.as_ref(), async {
+            client.read_response().await
+        })
+        .await?;
 
         self.post_connect().await
     }
