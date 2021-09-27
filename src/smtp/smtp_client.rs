@@ -458,13 +458,28 @@ impl<'a> SmtpTransport {
                     .to_socket_addrs()
                     .await?;
 
-                if let Some(addr) = addresses.next() {
-                    client
-                        .connect(&addr, self.client_info.timeout, tls_parameters)
-                        .await?;
-                } else {
+                let mut last_err = None;
+                loop {
+                    if let Some(addr) = addresses.next() {
+                        if let Err(err) = client
+                            .connect(&addr, self.client_info.timeout, tls_parameters)
+                            .await
+                        {
+                            // In case of error, remember the error and see if we can resolve
+                            // another address
+                            last_err = Some(err);
+                            continue;
+                        }
+                        break;
+                    }
+
+                    // No more possible addresses, let's either return the last collected
+                    // error or generic resolution error
+                    if let Some(err) = last_err {
+                        return Err(err);
+                    }
                     return Err(Error::Resolution);
-                };
+                }
             }
 
             #[cfg(feature = "socks5")]
