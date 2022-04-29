@@ -39,7 +39,15 @@ impl ClientCodec {
                     match self.escape_count {
                         0 => self.escape_count = if *byte == b'\r' { 1 } else { 0 },
                         1 => self.escape_count = if *byte == b'\n' { 2 } else { 0 },
-                        2 => self.escape_count = if *byte == b'.' { 3 } else { 0 },
+                        2 => {
+                            self.escape_count = if *byte == b'.' {
+                                3
+                            } else if *byte == b'\r' {
+                                1
+                            } else {
+                                0
+                            }
+                        }
                         _ => unreachable!(),
                     }
                     if self.escape_count == 3 {
