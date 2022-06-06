@@ -282,11 +282,11 @@ impl<S: Connector + Write + Read + Unpin> InnerClient<S> {
                     return Err(response.into());
                 }
                 Err(nom::Err::Failure(e)) => {
-                    return Err(Error::Parsing(e.1));
+                    return Err(Error::Parsing(e.code));
                 }
                 Err(nom::Err::Incomplete(_)) => { /* read more */ }
                 Err(nom::Err::Error(e)) => {
-                    return Err(Error::Parsing(e.1));
+                    return Err(Error::Parsing(e.code));
                 }
             }
         }

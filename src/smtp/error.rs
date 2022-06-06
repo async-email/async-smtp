@@ -62,12 +62,12 @@ pub enum Error {
     Socks5Error(#[from] fast_socks5::SocksError),
 }
 
-impl From<nom::Err<(&str, nom::error::ErrorKind)>> for Error {
-    fn from(err: nom::Err<(&str, nom::error::ErrorKind)>) -> Error {
+impl From<nom::Err<nom::error::Error<&str>>> for Error {
+    fn from(err: nom::Err<nom::error::Error<&str>>) -> Error {
         Parsing(match err {
             nom::Err::Incomplete(_) => nom::error::ErrorKind::Complete,
-            nom::Err::Failure((_, k)) => k,
-            nom::Err::Error((_, k)) => k,
+            nom::Err::Failure(e) => e.code,
+            nom::Err::Error(e) => e.code,
         })
     }
 }
