@@ -72,7 +72,7 @@ impl Display for ServerAddress {
 
 /// Struct holding the configuration for a socks5 proxy connection
 #[cfg(feature = "socks5")]
-#[derive(Default, Clone, Debug, PartialEq)]
+#[derive(Default, Clone, Debug, Eq, PartialEq)]
 pub struct Socks5Config {
     /// Hostname of the socks5 server
     pub host: String,
