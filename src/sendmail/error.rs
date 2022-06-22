@@ -2,7 +2,7 @@
 
 use std::string::FromUtf8Error;
 
-use async_std::io;
+use futures::io;
 
 /// An enum of all error kinds.
 #[derive(thiserror::Error, Debug)]
@@ -16,6 +16,9 @@ pub enum Error {
     /// IO error
     #[error("io error: {0}")]
     Io(#[from] io::Error),
+    #[cfg(feature = "runtime-tokio")]
+    #[error("join: {0}")]
+    Join(#[from] tokio::task::JoinError),
 }
 
 /// sendmail result type

@@ -11,6 +11,12 @@
     clippy::unwrap_used
 )]
 
+#[cfg(not(any(feature = "runtime-tokio", feature = "runtime-async-std")))]
+compile_error!("one of 'runtime-async-std' or 'runtime-tokio' features must be enabled");
+
+#[cfg(all(feature = "runtime-tokio", feature = "runtime-async-std"))]
+compile_error!("only one of 'runtime-async-std' or 'runtime-tokio' features must be enabled");
+
 pub mod error;
 #[cfg(feature = "file-transport")]
 pub mod file;
@@ -52,4 +58,40 @@ pub trait Transport<'a> {
         email: SendableEmail,
         timeout: Option<&Duration>,
     ) -> Self::Result;
+}
+
+#[macro_export]
+macro_rules! async_test {
+    ($name:ident, $block:block) => {
+        #[cfg(feature = "runtime-tokio")]
+        #[tokio::test]
+        async fn $name() {
+            $block
+        }
+
+        #[cfg(feature = "runtime-async-std")]
+        #[async_std::test]
+        async fn $name() {
+            $block
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! async_test_ignore {
+    ($name:ident, $block:block) => {
+        #[cfg(feature = "runtime-tokio")]
+        #[tokio::test]
+        #[ignore]
+        async fn $name() {
+            $block
+        }
+
+        #[cfg(feature = "runtime-async-std")]
+        #[async_std::test]
+        #[ignore]
+        async fn $name() {
+            $block
+        }
+    };
 }

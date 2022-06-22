@@ -5,7 +5,6 @@ use crate::sendmail::error::SendmailResult;
 use crate::SendableEmail;
 use crate::Transport;
 
-use async_std::prelude::*;
 use async_trait::async_trait;
 use log::info;
 use std::convert::AsRef;
@@ -14,6 +13,12 @@ use std::{
     process::{Command, Stdio},
     time::Duration,
 };
+
+#[cfg(feature = "runtime-tokio")]
+use tokio::{io::AsyncReadExt, task::spawn_blocking};
+
+#[cfg(feature = "runtime-async-std")]
+use async_std::{io::ReadExt, task::spawn_blocking};
 
 pub mod error;
 
@@ -63,7 +68,7 @@ impl<'a> Transport<'a> for SendmailTransport {
         let _ = email.message().read_to_string(&mut message_content).await;
 
         // TODO: Convert to real async, once async-std has a process implementation.
-        let output = async_std::task::spawn_blocking(move || {
+        let res = spawn_blocking(move || {
             // Spawn the sendmail command
             let mut process = Command::new(command)
                 .arg("-i")
@@ -83,14 +88,22 @@ impl<'a> Transport<'a> for SendmailTransport {
 
             info!("Wrote {} message to stdin", message_id);
 
-            process.wait_with_output()
+            let output = process.wait_with_output()?;
+            if output.status.success() {
+                Ok(())
+            } else {
+                Err(error::Error::Client(String::from_utf8(output.stderr)?))
+            }
         })
-        .await?;
+        .await;
 
-        if output.status.success() {
-            Ok(())
-        } else {
-            Err(error::Error::Client(String::from_utf8(output.stderr)?))
+        #[cfg(feature = "runtime-tokio")]
+        {
+            res?
+        }
+        #[cfg(feature = "runtime-async-std")]
+        {
+            res
         }
     }
 

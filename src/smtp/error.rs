@@ -47,6 +47,10 @@ pub enum Error {
     /// Parsing error
     #[error("parsing: {0:?}")]
     Parsing(nom::error::ErrorKind),
+    #[cfg(feature = "runtime-tokio")]
+    #[error("timeout: {0}")]
+    Timeout(#[from] tokio::time::error::Elapsed),
+    #[cfg(feature = "runtime-async-std")]
     #[error("timeout: {0}")]
     Timeout(#[from] async_std::future::TimeoutError),
     #[error("no stream")]

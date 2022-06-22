@@ -3,12 +3,14 @@
 //! It can be useful for testing purposes, or if you want to keep track of sent messages.
 //!
 
+use std::path::Path;
 use std::{path::PathBuf, time::Duration};
 
-use async_std::fs::File;
-use async_std::path::Path;
-use async_std::prelude::*;
+#[cfg(feature = "runtime-async-std")]
+use async_std::fs::write;
 use async_trait::async_trait;
+#[cfg(feature = "runtime-tokio")]
+use tokio::fs::write;
 
 use crate::file::error::FileResult;
 use crate::Envelope;
@@ -64,10 +66,8 @@ impl<'a> Transport<'a> for FileTransport {
             message: email.message_to_string().await?.as_bytes().to_vec(),
         })?;
 
-        File::create(file)
-            .await?
-            .write_all(serialized.as_bytes())
-            .await?;
+        write(file, serialized.as_bytes()).await?;
+
         Ok(())
     }
 

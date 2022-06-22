@@ -1,5 +1,9 @@
-use async_std::io::{self, Write};
-use async_std::prelude::*;
+#[cfg(feature = "runtime-async-std")]
+use async_std::io::{Write, WriteExt};
+#[cfg(feature = "runtime-tokio")]
+use tokio::io::{AsyncWrite as Write, AsyncWriteExt};
+
+use futures::io;
 
 /// The codec used for transparency
 #[derive(Default, Clone, Copy, Debug)]
