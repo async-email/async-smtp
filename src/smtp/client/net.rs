@@ -1,18 +1,26 @@
 //! A trait to represent a stream
 
 use std::fmt;
+use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+use std::pin::Pin;
+use std::task::{Context, Poll};
 use std::time::Duration;
 
 use async_native_tls::{TlsConnector, TlsStream};
-use async_std::io::{self, ErrorKind, Read, Write};
-use async_std::net::{Ipv4Addr, Shutdown, SocketAddr, SocketAddrV4, TcpStream};
-use async_std::pin::Pin;
-use async_std::task::{Context, Poll};
+#[cfg(feature = "runtime-async-std")]
+use async_std::{io::Read, io::Write, net::TcpStream};
 use async_trait::async_trait;
 #[cfg(feature = "socks5")]
 use fast_socks5::client::Socks5Stream;
+use futures::io::{self, ErrorKind};
 use pin_project::pin_project;
+#[cfg(feature = "runtime-tokio")]
+use tokio::{
+    io::{AsyncRead as Read, AsyncWrite as Write},
+    net::TcpStream,
+};
 
+use super::inner::with_timeout;
 use crate::smtp::client::mock::MockStream;
 
 #[cfg(feature = "socks5")]
@@ -78,20 +86,152 @@ impl NetworkStream {
         }
     }
 
-    /// Shutdowns the connection
-    pub fn shutdown(&self, how: Shutdown) -> io::Result<()> {
+    /// Shutdowns the connection.
+    #[cfg(feature = "runtime-tokio")]
+    pub async fn shutdown(&mut self) -> io::Result<()> {
+        use tokio::io::AsyncWriteExt;
         match *self {
-            NetworkStream::Tcp(ref s) => s.shutdown(how),
-            NetworkStream::Tls(ref s) => s.get_ref().shutdown(how),
+            NetworkStream::Tcp(ref mut s) => s.shutdown().await,
+            NetworkStream::Tls(ref mut s) => s.get_mut().shutdown().await,
             #[cfg(feature = "socks5")]
-            NetworkStream::Socks5Stream(ref s) => s.get_socket_ref().shutdown(how),
+            NetworkStream::Socks5Stream(ref mut s) => s.get_socket_mut().shutdown().await,
             #[cfg(feature = "socks5")]
-            NetworkStream::TlsSocks5Stream(ref s) => s.get_ref().get_socket_ref().shutdown(how),
+            NetworkStream::TlsSocks5Stream(ref mut s) => {
+                s.get_mut().get_socket_mut().shutdown().await
+            }
+            NetworkStream::Mock(_) => Ok(()),
+        }
+    }
+
+    /// Shutdowns the connection.
+    #[cfg(feature = "runtime-async-std")]
+    pub async fn shutdown(&mut self) -> io::Result<()> {
+        use std::net::Shutdown;
+
+        match *self {
+            NetworkStream::Tcp(ref s) => s.shutdown(Shutdown::Both),
+            NetworkStream::Tls(ref s) => s.get_ref().shutdown(Shutdown::Both),
+            #[cfg(feature = "socks5")]
+            NetworkStream::Socks5Stream(ref s) => s.get_socket_ref().shutdown(Shutdown::Both),
+            #[cfg(feature = "socks5")]
+            NetworkStream::TlsSocks5Stream(ref s) => {
+                s.get_ref().get_socket_ref().shutdown(Shutdown::Both)
+            }
             NetworkStream::Mock(_) => Ok(()),
         }
     }
 }
 
+#[cfg(feature = "runtime-tokio")]
+impl Read for NetworkStream {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        match self.project() {
+            NetworkStreamProj::Tcp(s) => {
+                let _: Pin<&mut TcpStream> = s;
+                s.poll_read(cx, buf)
+            }
+            NetworkStreamProj::Tls(s) => {
+                let _: Pin<&mut TlsStream<TcpStream>> = s;
+                s.poll_read(cx, buf)
+            }
+            #[cfg(feature = "socks5")]
+            NetworkStreamProj::Socks5Stream(s) => {
+                let _: Pin<&mut Socks5Stream<TcpStream>> = s;
+                s.poll_read(cx, buf)
+            }
+            #[cfg(feature = "socks5")]
+            NetworkStreamProj::TlsSocks5Stream(s) => {
+                let _: Pin<&mut TlsStream<Socks5Stream<TcpStream>>> = s;
+                s.poll_read(cx, buf)
+            }
+            NetworkStreamProj::Mock(s) => {
+                let _: Pin<&mut MockStream> = s;
+                s.poll_read(cx, buf)
+            }
+        }
+    }
+}
+
+#[cfg(feature = "runtime-tokio")]
+impl Write for NetworkStream {
+    fn poll_write(self: Pin<&mut Self>, cx: &mut Context, buf: &[u8]) -> Poll<io::Result<usize>> {
+        match self.project() {
+            NetworkStreamProj::Tcp(s) => {
+                let _: Pin<&mut TcpStream> = s;
+                s.poll_write(cx, buf)
+            }
+            NetworkStreamProj::Tls(s) => {
+                let _: Pin<&mut TlsStream<TcpStream>> = s;
+                s.poll_write(cx, buf)
+            }
+            #[cfg(feature = "socks5")]
+            NetworkStreamProj::Socks5Stream(s) => s.poll_write(cx, buf),
+            #[cfg(feature = "socks5")]
+            NetworkStreamProj::TlsSocks5Stream(s) => {
+                let _: Pin<&mut TlsStream<Socks5Stream<TcpStream>>> = s;
+                s.poll_write(cx, buf)
+            }
+            NetworkStreamProj::Mock(s) => {
+                let _: Pin<&mut MockStream> = s;
+                s.poll_write(cx, buf)
+            }
+        }
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context) -> Poll<io::Result<()>> {
+        match self.project() {
+            NetworkStreamProj::Tcp(s) => {
+                let _: Pin<&mut TcpStream> = s;
+                s.poll_flush(cx)
+            }
+            NetworkStreamProj::Tls(s) => {
+                let _: Pin<&mut TlsStream<TcpStream>> = s;
+                s.poll_flush(cx)
+            }
+            #[cfg(feature = "socks5")]
+            NetworkStreamProj::Socks5Stream(s) => s.poll_flush(cx),
+            #[cfg(feature = "socks5")]
+            NetworkStreamProj::TlsSocks5Stream(s) => {
+                let _: Pin<&mut TlsStream<Socks5Stream<TcpStream>>> = s;
+                s.poll_flush(cx)
+            }
+            NetworkStreamProj::Mock(s) => {
+                let _: Pin<&mut MockStream> = s;
+                s.poll_flush(cx)
+            }
+        }
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context) -> Poll<io::Result<()>> {
+        match self.project() {
+            NetworkStreamProj::Tcp(s) => {
+                let _: Pin<&mut TcpStream> = s;
+                s.poll_shutdown(cx)
+            }
+            NetworkStreamProj::Tls(s) => {
+                let _: Pin<&mut TlsStream<TcpStream>> = s;
+                s.poll_shutdown(cx)
+            }
+            #[cfg(feature = "socks5")]
+            NetworkStreamProj::Socks5Stream(s) => s.poll_shutdown(cx),
+            #[cfg(feature = "socks5")]
+            NetworkStreamProj::TlsSocks5Stream(s) => {
+                let _: Pin<&mut TlsStream<Socks5Stream<TcpStream>>> = s;
+                s.poll_shutdown(cx)
+            }
+            NetworkStreamProj::Mock(s) => {
+                let _: Pin<&mut MockStream> = s;
+                s.poll_shutdown(cx)
+            }
+        }
+    }
+}
+
+#[cfg(feature = "runtime-async-std")]
 impl Read for NetworkStream {
     fn poll_read(
         self: Pin<&mut Self>,
@@ -125,6 +265,7 @@ impl Read for NetworkStream {
     }
 }
 
+#[cfg(feature = "runtime-async-std")]
 impl Write for NetworkStream {
     fn poll_write(self: Pin<&mut Self>, cx: &mut Context, buf: &[u8]) -> Poll<io::Result<usize>> {
         match self.project() {
@@ -231,27 +372,26 @@ impl Connector for NetworkStream {
         tls_parameters: Option<&ClientTlsParameters>,
     ) -> io::Result<NetworkStream> {
         let tcp_stream = match timeout {
-            Some(duration) => io::timeout(duration, TcpStream::connect(addr)).await?,
+            Some(ref duration) => with_timeout(Some(duration), TcpStream::connect(addr)).await?,
             None => TcpStream::connect(addr).await?,
         };
 
         match tls_parameters {
-            Some(context) => match timeout {
-                Some(duration) => async_std::future::timeout(
-                    duration,
-                    context.connector.connect(&context.domain, tcp_stream),
-                )
-                .await
-                .map_err(|e| io::Error::new(ErrorKind::TimedOut, e))?
-                .map(NetworkStream::Tls)
-                .map_err(|e| io::Error::new(ErrorKind::Other, e)),
-                None => context
-                    .connector
-                    .connect(&context.domain, tcp_stream)
-                    .await
-                    .map(NetworkStream::Tls)
-                    .map_err(|e| io::Error::new(ErrorKind::Other, e)),
-            },
+            Some(context) => {
+                let connector = async {
+                    context
+                        .connector
+                        .connect(&context.domain, tcp_stream)
+                        .await
+                        .map(NetworkStream::Tls)
+                        .map_err(|e| io::Error::new(ErrorKind::Other, e))
+                };
+
+                match timeout {
+                    Some(ref duration) => with_timeout(Some(duration), connector).await,
+                    None => connector.await,
+                }
+            }
             None => Ok(NetworkStream::Tcp(tcp_stream)),
         }
     }
@@ -266,22 +406,17 @@ impl Connector for NetworkStream {
         let socks5_stream = socks5.connect(addr, timeout).await?;
 
         match tls_parameters {
-            Some(context) => match timeout {
-                Some(duration) => async_std::future::timeout(
-                    duration,
-                    context.connector.connect(&context.domain, socks5_stream),
-                )
+            Some(context) => {
+                with_timeout(timeout.as_ref(), async {
+                    context
+                        .connector
+                        .connect(&context.domain, socks5_stream)
+                        .await
+                        .map(NetworkStream::TlsSocks5Stream)
+                        .map_err(|e| io::Error::new(ErrorKind::Other, e))
+                })
                 .await
-                .map_err(|e| io::Error::new(ErrorKind::TimedOut, e))?
-                .map(NetworkStream::TlsSocks5Stream)
-                .map_err(|e| io::Error::new(ErrorKind::Other, e)),
-                None => context
-                    .connector
-                    .connect(&context.domain, socks5_stream)
-                    .await
-                    .map(NetworkStream::TlsSocks5Stream)
-                    .map_err(|e| io::Error::new(ErrorKind::Other, e)),
-            },
+            }
             None => Ok(NetworkStream::Socks5Stream(socks5_stream)),
         }
     }

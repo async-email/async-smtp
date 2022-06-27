@@ -1,12 +1,22 @@
 use std::fmt::Display;
+use std::pin::Pin;
 use std::time::Duration;
 
-use async_std::net::ToSocketAddrs;
-use async_std::pin::Pin;
+#[cfg(all(feature = "runtime-async-std", feature = "socks5"))]
+use async_std::io;
+#[cfg(all(feature = "runtime-async-std", feature = "socks5"))]
+use async_std::net::TcpStream;
 use async_trait::async_trait;
+#[cfg(feature = "socks5")]
+use fast_socks5::client::{Config, Socks5Stream};
 use log::{debug, info};
 use pin_project::pin_project;
+#[cfg(all(feature = "runtime-tokio", feature = "socks5"))]
+use tokio::io;
+#[cfg(all(feature = "runtime-tokio", feature = "socks5"))]
+use tokio::net::TcpStream;
 
+use super::client::lookup_host;
 use crate::smtp::authentication::{
     Credentials, Mechanism, DEFAULT_ENCRYPTED_MECHANISMS, DEFAULT_UNENCRYPTED_MECHANISMS,
 };
@@ -16,13 +26,6 @@ use crate::smtp::commands::*;
 use crate::smtp::error::{Error, SmtpResult};
 use crate::smtp::extension::{ClientId, Extension, MailBodyParameter, MailParameter, ServerInfo};
 use crate::{SendableEmail, Transport};
-#[cfg(feature = "socks5")]
-use async_std::io::{self, ErrorKind};
-
-#[cfg(feature = "socks5")]
-use async_std::net::TcpStream;
-#[cfg(feature = "socks5")]
-use fast_socks5::client::{Config, Socks5Stream};
 
 // Registered port numbers:
 // https://www.iana.
@@ -108,13 +111,8 @@ impl Socks5Config {
         target_addr: &ServerAddress,
         timeout: Option<Duration>,
     ) -> io::Result<Socks5Stream<TcpStream>> {
-        if let Some(timeout) = timeout {
-            async_std::future::timeout(timeout, self.connect_without_timeout(target_addr))
-                .await
-                .map_err(|e| io::Error::new(ErrorKind::TimedOut, e))?
-        } else {
-            self.connect_without_timeout(target_addr).await
-        }
+        super::client::with_timeout(timeout.as_ref(), self.connect_without_timeout(target_addr))
+            .await
     }
 
     async fn connect_without_timeout(
@@ -146,7 +144,7 @@ impl Socks5Config {
         match socks_stream {
             Ok(socks_stream) => io::Result::Ok(socks_stream),
             Err(e) => io::Result::Err(io::Error::new(
-                ErrorKind::ConnectionRefused,
+                std::io::ErrorKind::ConnectionRefused,
                 Error::Socks5Error(e),
             )),
         }
@@ -451,12 +449,7 @@ impl<'a> SmtpTransport {
         match &self.client_info.connection_type {
             ConnectionType::Direct => {
                 // Perform dns lookup if needed
-                let mut addresses = self
-                    .client_info
-                    .server_addr
-                    .to_string()
-                    .to_socket_addrs()
-                    .await?;
+                let mut addresses = lookup_host(self.client_info.server_addr.to_string()).await?;
 
                 let mut last_err = None;
                 loop {

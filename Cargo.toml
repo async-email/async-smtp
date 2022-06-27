@@ -19,40 +19,54 @@ is-it-maintained-open-issues = { repository = "async-email/async-smtp" }
 
 [dependencies]
 log = "^0.4"
-nom = { version = "^5.0", optional = true }
+async-trait = "0.1.17"
+pin-project = "1"
+pin-utils = "0.1.0"
+thiserror = "1.0.9"
+futures = "0.3.21"
+
+nom = { version = "^7.0", optional = true }
 bufstream = { version = "^0.1", optional = true }
 base64 = { version = "^0.13", optional = true }
 hostname = { version = "0.3.1", optional = true }
 serde = { version = "^1.0", optional = true }
 serde_json = { version = "^1.0", optional = true }
 serde_derive = { version = "^1.0", optional = true }
-fast-socks5 = { version = "^0.4", optional = true }
-async-native-tls = { version = "0.3.3" }
-async-std = { version = "1.6.0", features = ["unstable"] }
-async-trait = "0.1.17"
-pin-project = "1"
-pin-utils = "0.1.0"
-thiserror = "1.0.9"
+fast-socks5 = { version = "^0.8", optional = true }
+
+async-std = { version = "1.11", features = ["unstable"], optional = true }
+tokio = { version = "1", features = ["fs", "rt", "time", "net"], optional = true }
+async-native-tls = { version = "0.4", default-features = false }
+
 
 [dev-dependencies]
-env_logger = "^0.8"
+env_logger = "^0.9"
 glob = "^0.3"
 criterion = "^0.3"
-async-attributes = "1.1.1"
+async-std = { version = "1.11", features = ["unstable", "attributes"] }
+tokio = { version = "1", features = ["fs", "rt", "time", "net", "macros"] }
 
 [[bench]]
 name = "transport_smtp"
 harness = false
 
 [features]
-default = ["file-transport", "smtp-transport", "sendmail-transport"]
-unstable = []
+default = [
+  "file-transport", 
+  "smtp-transport", 
+  "sendmail-transport",
+  "runtime-tokio"
+]
+
 serde-impls = ["serde", "serde_derive"]
 file-transport = ["serde-impls", "serde_json"]
 smtp-transport = ["bufstream", "base64", "nom", "hostname"]
 sendmail-transport = []
 native-tls-vendored = ["async-native-tls/vendored"]
 socks5 = ["fast-socks5"]
+runtime-async-std = ["async-std", "async-native-tls/runtime-async-std"]
+runtime-tokio = ["tokio", "async-native-tls/runtime-tokio"]
+
 
 [[example]]
 name = "smtp"

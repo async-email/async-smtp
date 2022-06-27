@@ -1,12 +1,17 @@
 use std::ffi::OsStr;
 use std::fmt::{self, Display, Formatter};
+use std::pin::Pin;
 use std::str::FromStr;
+use std::task::{Context, Poll};
 
-use async_std::io::{self, Cursor, Read};
-use async_std::pin::Pin;
-use async_std::prelude::*;
-use async_std::task::{Context, Poll};
+#[cfg(feature = "runtime-async-std")]
+use async_std::io::{Cursor, Read, ReadExt};
+use futures::io;
 use pin_project::pin_project;
+#[cfg(feature = "runtime-tokio")]
+use std::io::Cursor;
+#[cfg(feature = "runtime-tokio")]
+use tokio::io::{AsyncRead as Read, AsyncReadExt};
 
 use crate::error::EmailResult;
 use crate::error::Error;
@@ -106,6 +111,29 @@ pub enum Message {
     Bytes(#[pin] Cursor<Vec<u8>>),
 }
 
+#[cfg(feature = "runtime-tokio")]
+impl Read for Message {
+    #[allow(unsafe_code)]
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        match self.project() {
+            MessageProj::Reader(mut rdr) => {
+                // Probably safe..
+                let r: Pin<&mut _> = unsafe { Pin::new_unchecked(&mut **rdr) };
+                r.poll_read(cx, buf)
+            }
+            MessageProj::Bytes(rdr) => {
+                let _: Pin<&mut _> = rdr;
+                rdr.poll_read(cx, buf)
+            }
+        }
+    }
+}
+
+#[cfg(feature = "runtime-async-std")]
 impl Read for Message {
     #[allow(unsafe_code)]
     fn poll_read(

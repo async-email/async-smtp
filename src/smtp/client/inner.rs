@@ -1,13 +1,20 @@
 use std::fmt::{Debug, Display};
+use std::net::SocketAddr;
+use std::pin::Pin;
 use std::string::String;
 use std::time::Duration;
 
-use async_std::io::{self, BufReader, Read, Write};
-use async_std::net::ToSocketAddrs;
-use async_std::pin::Pin;
-use async_std::prelude::*;
+use futures::io;
+use futures::prelude::*;
 use log::debug;
 use pin_project::pin_project;
+
+#[cfg(feature = "runtime-async-std")]
+use async_std::io::{BufReader, Read, Write};
+#[cfg(feature = "runtime-tokio")]
+use tokio::io::{
+    AsyncBufReadExt, AsyncRead as Read, AsyncReadExt, AsyncWrite as Write, AsyncWriteExt, BufReader,
+};
 
 use crate::smtp::authentication::{Credentials, Mechanism};
 use crate::smtp::client::net::{ClientTlsParameters, Connector, NetworkStream};
@@ -20,6 +27,11 @@ use crate::smtp::response::parse_response;
 use crate::smtp::Socks5Config;
 #[cfg(feature = "socks5")]
 use crate::ServerAddress;
+
+#[cfg(feature = "runtime-async-std")]
+use async_std::net::ToSocketAddrs;
+#[cfg(feature = "runtime-tokio")]
+use tokio::net::ToSocketAddrs;
 
 /// Returns the string replacing all the CRLF with "\<CRLF\>"
 /// Used for debug displays
@@ -115,7 +127,7 @@ impl<S: Connector + Write + Read + Unpin> InnerClient<S> {
         timeout: Option<Duration>,
         tls_parameters: Option<&ClientTlsParameters>,
     ) -> Result<(), Error> {
-        let mut addresses = addr.to_socket_addrs().await?;
+        let mut addresses = lookup_host(addr).await?;
 
         let server_addr = match addresses.next() {
             Some(addr) => addr,
@@ -282,11 +294,11 @@ impl<S: Connector + Write + Read + Unpin> InnerClient<S> {
                     return Err(response.into());
                 }
                 Err(nom::Err::Failure(e)) => {
-                    return Err(Error::Parsing(e.1));
+                    return Err(Error::Parsing(e.code));
                 }
                 Err(nom::Err::Incomplete(_)) => { /* read more */ }
                 Err(nom::Err::Error(e)) => {
-                    return Err(Error::Parsing(e.1));
+                    return Err(Error::Parsing(e.code));
                 }
             }
         }
@@ -295,17 +307,52 @@ impl<S: Connector + Write + Read + Unpin> InnerClient<S> {
     }
 }
 
+#[cfg(feature = "runtime-tokio")]
+pub(crate) async fn lookup_host<A: ToSocketAddrs>(
+    addr: A,
+) -> io::Result<impl Iterator<Item = SocketAddr>> {
+    tokio::net::lookup_host(addr).await
+}
+
+#[cfg(feature = "runtime-async-std")]
+pub(crate) async fn lookup_host<A: ToSocketAddrs>(
+    addr: A,
+) -> io::Result<impl Iterator<Item = SocketAddr>> {
+    addr.to_socket_addrs().await
+}
+
 /// Execute io operations with an optional timeout using.
+#[cfg(feature = "runtime-tokio")]
 pub(crate) async fn with_timeout<T, F, E>(
     timeout: Option<&Duration>,
     f: F,
 ) -> std::result::Result<T, E>
 where
     F: Future<Output = std::result::Result<T, E>>,
-    E: From<async_std::future::TimeoutError>,
+    E: From<tokio::time::error::Elapsed>,
 {
     if let Some(timeout) = timeout {
-        let res = async_std::future::timeout(*timeout, f).await??;
+        let res = tokio::time::timeout(*timeout, f).await??;
+        Ok(res)
+    } else {
+        f.await
+    }
+}
+
+/// Execute io operations with an optional timeout using.
+#[cfg(feature = "runtime-async-std")]
+pub(crate) async fn with_timeout<T, F, E>(
+    timeout: Option<&Duration>,
+    f: F,
+) -> std::result::Result<T, E>
+where
+    F: Future<Output = std::result::Result<T, E>>,
+    E: From<io::Error>,
+{
+    if let Some(timeout) = timeout {
+        let res = async_std::future::timeout(*timeout, f)
+            .await
+            .map_err(|e| io::Error::new(io::ErrorKind::TimedOut, e))??;
         Ok(res)
     } else {
         f.await
@@ -315,10 +362,10 @@ where
 #[cfg(test)]
 mod test {
     use super::escape_crlf;
+    use crate::async_test;
     use crate::smtp::client::ClientCodec;
 
-    #[async_attributes::test]
-    async fn test_codec() {
+    async_test! { test_codec, {
         let mut codec = ClientCodec::new();
         let mut buf: Vec<u8> = vec![];
 
@@ -335,7 +382,7 @@ mod test {
             String::from_utf8(buf).unwrap(),
             "test\r\n..\r\n\r\ntestte\r\n..\r\nsttesttest.test\n.test\ntest"
         );
-    }
+    }}
 
     #[test]
     fn test_escape_crlf() {

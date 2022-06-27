@@ -2,10 +2,9 @@
 #[cfg(feature = "smtp-transport")]
 mod test {
     use async_smtp::stub::StubTransport;
-    use async_smtp::{EmailAddress, Envelope, SendableEmail, Transport};
+    use async_smtp::{async_test, EmailAddress, Envelope, SendableEmail, Transport};
 
-    #[async_attributes::test]
-    async fn stub_transport() {
+    async_test! { stub_transport, {
         let mut sender_ok = StubTransport::new_positive();
         let mut sender_ko = StubTransport::new(Err(()));
         let email_ok = SendableEmail::new(
@@ -29,5 +28,5 @@ mod test {
 
         sender_ok.send(email_ok).await.unwrap();
         sender_ko.send(email_ko).await.unwrap_err();
-    }
+    }}
 }
