@@ -16,12 +16,12 @@ pub enum Error {
     /// Transient SMTP error, 4xx reply code
     ///
     /// [RFC 5321, section 4.2.1](https://tools.ietf.org/html/rfc5321#section-4.2.1)
-    #[error("transient: {}", if .0.message.len() == 0 { "undetailed error during SMTP transaction".to_string() } else { .0.message.join("; ") })]
+    #[error("transient: {}", if .0.message.is_empty() { "undetailed error during SMTP transaction".to_string() } else { .0.message.join("; ") })]
     Transient(Response),
     /// Permanent SMTP error, 5xx reply code
     ///
     /// [RFC 5321, section 4.2.1](https://tools.ietf.org/html/rfc5321#section-4.2.1)
-    #[error("permanent: {}", if .0.message.len() == 0 { "undetailed error during SMTP transaction".to_string() } else { .0.message.join("; ") })]
+    #[error("permanent: {}", if .0.message.is_empty() { "undetailed error during SMTP transaction".to_string() } else { .0.message.join("; ") })]
     Permanent(Response),
     /// Error parsing a response
     #[error("{0}")]
