@@ -16,12 +16,12 @@ pub enum Error {
     /// Transient SMTP error, 4xx reply code
     ///
     /// [RFC 5321, section 4.2.1](https://tools.ietf.org/html/rfc5321#section-4.2.1)
-    #[error("transient: {}", .0.first_line().unwrap_or("undetailed error during SMTP transaction"))]
+    #[error("transient: {}", if .0.message.len() == 0 { "undetailed error during SMTP transaction".to_string() } else { .0.message.join("; ") })]
     Transient(Response),
     /// Permanent SMTP error, 5xx reply code
     ///
     /// [RFC 5321, section 4.2.1](https://tools.ietf.org/html/rfc5321#section-4.2.1)
-    #[error("permanent: {}", .0.first_line().unwrap_or("undetailed error during SMTP transaction"))]
+    #[error("permanent: {}", if .0.message.len() == 0 { "undetailed error during SMTP transaction".to_string() } else { .0.message.join("; ") })]
     Permanent(Response),
     /// Error parsing a response
     #[error("{0}")]
@@ -90,3 +90,28 @@ impl From<&'static str> for Error {
 
 /// SMTP result type
 pub type SmtpResult = Result<Response, Error>;
+
+#[cfg(test)]
+mod test {
+
+    use super::Error;
+    use crate::smtp::response::{Category, Code, Detail, Response, Severity};
+
+    #[test]
+    fn test_error_response_to_string() {
+        let err = Error::Permanent(Response::new(
+            Code::new(
+                Severity::PermanentNegativeCompletion,
+                Category::Information,
+                Detail::Zero,
+            ),
+            vec![
+                "gmx.net (mxgmx117) Nemesis ESMTP Service not available".to_string(),
+                "No SMTP service".to_string(),
+                "IP address is block listed.".to_string(),
+                "For explanation visit https://www.gmx.net/mail/senderguidelines?c=bl".to_string(),
+            ],
+        ));
+        assert_eq!(format!("{}", err), "permanent: gmx.net (mxgmx117) Nemesis ESMTP Service not available; No SMTP service; IP address is block listed.; For explanation visit https://www.gmx.net/mail/senderguidelines?c=bl".to_string());
+    }
+}
