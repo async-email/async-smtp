@@ -81,6 +81,10 @@ impl ClientId {
     derive(serde_derive::Serialize, serde_derive::Deserialize)
 )]
 pub enum Extension {
+    /// PIPELINING keyword
+    ///
+    /// RFC 2920: https://tools.ietf.org/html/rfc2920
+    Pipelining,
     /// 8BITMIME keyword
     ///
     /// RFC 6152: https://tools.ietf.org/html/rfc6152
@@ -100,6 +104,7 @@ pub enum Extension {
 impl Display for Extension {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match *self {
+            Extension::Pipelining => write!(f, "PIPELINING"),
             Extension::EightBitMime => write!(f, "8BITMIME"),
             Extension::SmtpUtfEight => write!(f, "SMTPUTF8"),
             Extension::StartTls => write!(f, "STARTTLS"),
@@ -157,6 +162,9 @@ impl ServerInfo {
 
             let split: Vec<&str> = line.split_whitespace().collect();
             match split.first().copied() {
+                Some("PIPELINING") => {
+                    features.insert(Extension::Pipelining);
+                }
                 Some("8BITMIME") => {
                     features.insert(Extension::EightBitMime);
                 }
@@ -315,6 +323,10 @@ mod test {
 
     #[test]
     fn test_extension_fmt() {
+        assert_eq!(
+            format!("{}", Extension::Pipelining),
+            "PIPELINING".to_string()
+        );
         assert_eq!(
             format!("{}", Extension::EightBitMime),
             "8BITMIME".to_string()
