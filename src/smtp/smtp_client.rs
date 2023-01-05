@@ -229,7 +229,7 @@ impl SmtpClient {
     /// * No SMTPUTF8 support
     /// * A 60 seconds timeout for smtp commands
     ///
-    /// Consider using [`SmtpClient::new_simple`] instead, if possible.
+    /// Consider using [`SmtpClient::new`] instead, if possible.
     pub fn with_security(server_addr: ServerAddress, security: ClientSecurity) -> SmtpClient {
         SmtpClient {
             server_addr,
