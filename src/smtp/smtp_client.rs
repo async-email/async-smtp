@@ -676,34 +676,82 @@ impl<'a> Transport<'a> for SmtpTransport {
             mail_options.push(MailParameter::SmtpUtfEight);
         }
 
+        let pipelining = self.supports_feature(Extension::Pipelining);
+
         let mut client = Pin::new(&mut self.client);
 
-        try_smtp!(
-            client
-                .as_mut()
-                .command_with_timeout(
-                    MailCommand::new(email.envelope().from().cloned(), mail_options),
-                    timeout
-                )
-                .await,
-            self
-        );
-
-        // Recipient
-        for to_address in email.envelope().to() {
+        if pipelining {
             try_smtp!(
                 client
                     .as_mut()
-                    .command_with_timeout(RcptCommand::new(to_address.clone(), vec![]), timeout)
+                    .send_command_with_timeout(
+                        MailCommand::new(email.envelope().from().cloned(), mail_options),
+                        timeout
+                    )
                     .await,
                 self
             );
-            // Log the rcpt command
-            debug!("{}: to=<{}>", message_id, to_address);
-        }
+            let mut sent_commands = 1;
 
-        // Data
-        try_smtp!(client.as_mut().command(DataCommand).await, self);
+            // Recipient
+            for to_address in email.envelope().to() {
+                try_smtp!(
+                    client
+                        .as_mut()
+                        .send_command_with_timeout(
+                            RcptCommand::new(to_address.clone(), vec![]),
+                            timeout
+                        )
+                        .await,
+                    self
+                );
+                sent_commands += 1;
+            }
+
+            // Data
+            try_smtp!(
+                client
+                    .as_mut()
+                    .send_command_with_timeout(DataCommand, timeout)
+                    .await,
+                self
+            );
+            sent_commands += 1;
+
+            for _ in 0..sent_commands {
+                try_smtp!(
+                    client.as_mut().read_response_with_timeout(timeout).await,
+                    self
+                );
+            }
+        } else {
+            try_smtp!(
+                client
+                    .as_mut()
+                    .command_with_timeout(
+                        MailCommand::new(email.envelope().from().cloned(), mail_options),
+                        timeout
+                    )
+                    .await,
+                self
+            );
+
+            // Recipient
+            for to_address in email.envelope().to() {
+                try_smtp!(
+                    client
+                        .as_mut()
+                        .command_with_timeout(RcptCommand::new(to_address.clone(), vec![]), timeout)
+                        .await,
+                    self
+                );
+                // Log the rcpt command
+                debug!("{}: to=<{}>", message_id, to_address);
+            }
+
+            // Data
+            try_smtp!(client.as_mut().command(DataCommand).await, self);
+        }
 
         let res = client
             .as_mut()

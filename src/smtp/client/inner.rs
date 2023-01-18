@@ -238,12 +238,30 @@ impl<S: Connector + Write + Read + Unpin> InnerClient<S> {
         self.command_with_timeout(command, timeout.as_ref()).await
     }
 
+    /// Sends the given SMTP command to the server without waiting for response.
+    pub async fn send_command_no_timeout<C: Display>(
+        self: Pin<&mut Self>,
+        command: C,
+    ) -> Result<(), Error> {
+        self.write(command.to_string().as_bytes()).await
+    }
+
+    pub async fn send_command_with_timeout<C: Display>(
+        self: Pin<&mut Self>,
+        command: C,
+        timeout: Option<&Duration>,
+    ) -> Result<(), Error> {
+        with_timeout(timeout, self.send_command_no_timeout(command)).await
+    }
+
     pub async fn command_with_timeout<C: Display>(
         mut self: Pin<&mut Self>,
         command: C,
         timeout: Option<&Duration>,
     ) -> SmtpResult {
-        with_timeout(timeout, self.as_mut().write(command.to_string().as_bytes())).await?;
+        self.as_mut()
+            .send_command_with_timeout(command, timeout)
+            .await?;
         with_timeout(timeout, self.read_response_no_timeout()).await
     }
 
@@ -270,6 +288,13 @@ impl<S: Connector + Write + Read + Unpin> InnerClient<S> {
     pub async fn read_response(self: Pin<&mut Self>) -> SmtpResult {
         let timeout = self.timeout;
         with_timeout(timeout.as_ref(), self.read_response_no_timeout()).await
+    }
+
+    pub async fn read_response_with_timeout(
+        self: Pin<&mut Self>,
+        timeout: Option<&Duration>,
+    ) -> SmtpResult {
+        with_timeout(timeout, self.read_response_no_timeout()).await
     }
 
     async fn read_response_no_timeout(mut self: Pin<&mut Self>) -> SmtpResult {
