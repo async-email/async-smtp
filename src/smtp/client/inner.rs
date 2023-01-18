@@ -239,7 +239,10 @@ impl<S: Connector + Write + Read + Unpin> InnerClient<S> {
     }
 
     /// Sends the given SMTP command to the server without waiting for response.
-    pub async fn send_command<C: Display>(self: Pin<&mut Self>, command: C) -> Result<(), Error> {
+    pub async fn send_command_no_timeout<C: Display>(
+        self: Pin<&mut Self>,
+        command: C,
+    ) -> Result<(), Error> {
         self.write(command.to_string().as_bytes()).await
     }
 
@@ -248,7 +251,7 @@ impl<S: Connector + Write + Read + Unpin> InnerClient<S> {
         command: C,
         timeout: Option<&Duration>,
     ) -> Result<(), Error> {
-        with_timeout(timeout, self.send_command(command)).await
+        with_timeout(timeout, self.send_command_no_timeout(command)).await
     }
 
     pub async fn command_with_timeout<C: Display>(
