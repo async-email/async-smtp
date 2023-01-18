@@ -312,7 +312,7 @@ impl AuthCommand {
             .ok_or(Error::ResponseParsing("Could not read auth challenge"))?;
         debug!("auth encoded challenge: {}", encoded_challenge);
 
-        let decoded_challenge = String::from_utf8(base64::decode(&encoded_challenge)?)?;
+        let decoded_challenge = String::from_utf8(base64::decode(encoded_challenge)?)?;
         debug!("auth decoded challenge: {}", decoded_challenge);
 
         let response = Some(mechanism.response(&credentials, Some(decoded_challenge.as_ref()))?);
@@ -383,7 +383,7 @@ mod test {
             "RCPT TO:<test@example.com>\r\n"
         );
         assert_eq!(
-            format!("{}", RcptCommand::new(email.clone(), vec![rcpt_parameter])),
+            format!("{}", RcptCommand::new(email, vec![rcpt_parameter])),
             "RCPT TO:<test@example.com> TEST=value\r\n"
         );
         assert_eq!(format!("{}", QuitCommand), "QUIT\r\n");
@@ -414,7 +414,7 @@ mod test {
         assert_eq!(
             format!(
                 "{}",
-                AuthCommand::new(Mechanism::Login, credentials.clone(), None).unwrap()
+                AuthCommand::new(Mechanism::Login, credentials, None).unwrap()
             ),
             "AUTH LOGIN\r\n"
         );

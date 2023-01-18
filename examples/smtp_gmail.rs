@@ -9,7 +9,7 @@ fn main() {
                 vec![EmailAddress::new("to@example.com".to_string()).unwrap()],
             )
             .unwrap(),
-            "id".to_string(),
+            "id",
             "Hello example".to_string().into_bytes(),
         );
 

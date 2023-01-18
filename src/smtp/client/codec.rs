@@ -25,6 +25,7 @@ impl ClientCodec {
 impl ClientCodec {
     /// Adds transparency
     /// TODO: replace CR and LF by CRLF
+    #[allow(clippy::bool_to_int_with_if)]
     pub async fn encode<W: Write + Unpin>(&mut self, frame: &[u8], mut buf: W) -> io::Result<()> {
         match frame.len() {
             0 => {

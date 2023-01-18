@@ -13,7 +13,7 @@ mod test {
                 vec![EmailAddress::new("root@localhost".to_string()).unwrap()],
             )
             .unwrap(),
-            "id".to_string(),
+            "id",
             "Hello ß☺ example".to_string().into_bytes(),
         );
         let email_ko = SendableEmail::new(
@@ -22,7 +22,7 @@ mod test {
                 vec![EmailAddress::new("root@localhost".to_string()).unwrap()],
             )
             .unwrap(),
-            "id".to_string(),
+            "id",
             "Hello ß☺ example".to_string().into_bytes(),
         );
 

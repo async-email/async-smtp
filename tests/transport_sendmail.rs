@@ -14,7 +14,7 @@ mod test {
                     vec![EmailAddress::new("root@localhost".to_string()).unwrap()],
                 )
                     .unwrap(),
-                "id".to_string(),
+                "id",
                 "Hello ß☺ example".to_string().into_bytes(),
             );
 

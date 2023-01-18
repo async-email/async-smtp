@@ -24,7 +24,7 @@ fn bench_simple_send(c: &mut Criterion) {
                     vec![EmailAddress::new("root@localhost".to_string()).unwrap()],
                 )
                 .unwrap(),
-                "id".to_string(),
+                "id",
                 "From: user@localhost\r\n\
                  Content-Type: text/plain\r\n\
                  \r\n\
@@ -55,7 +55,7 @@ fn bench_reuse_send(c: &mut Criterion) {
                     vec![EmailAddress::new("root@localhost".to_string()).unwrap()],
                 )
                 .unwrap(),
-                "id".to_string(),
+                "id",
                 "From: user@localhost\r\n\
                  Content-Type: text/plain\r\n\
                  \r\n\
