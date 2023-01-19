@@ -203,7 +203,9 @@ pub struct SmtpClient {
 
 /// Builder for the SMTP `SmtpTransport`
 impl SmtpClient {
-    /// Creates a new SMTP client
+    /// Creates a new SMTP client.
+    ///
+    /// It does not connect to the server, but only creates the `SmtpTransport`.
     ///
     /// Defaults are:
     ///
@@ -362,9 +364,7 @@ macro_rules! try_smtp (
 );
 
 impl<'a> SmtpTransport {
-    /// Creates a new SMTP client
-    ///
-    /// It does not connect to the server, but only creates the `SmtpTransport`
+    /// Creates a new SMTP transport.
     pub fn new(builder: SmtpClient) -> SmtpTransport {
         SmtpTransport {
             client: InnerClient::new(),
