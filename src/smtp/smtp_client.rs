@@ -405,9 +405,6 @@ impl<'a> SmtpTransport {
             return Ok(());
         }
 
-        // Reset the state.
-        self.close().await?;
-
         let tls_parameters = match self.client_info.security {
             ClientSecurity::Wrapper(ref tls_parameters) => Some(tls_parameters),
             _ => None,
