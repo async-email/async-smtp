@@ -163,11 +163,6 @@ impl<S: Connector + Write + Read + Unpin> InnerClient<S> {
         Ok(())
     }
 
-    /// Checks if the underlying server socket is connected
-    pub fn is_connected(&self) -> bool {
-        self.stream.is_some()
-    }
-
     /// Sends an AUTH command with the given mechanism, and handles challenge if needed
     pub async fn auth(
         mut self: Pin<&mut Self>,

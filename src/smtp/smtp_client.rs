@@ -374,11 +374,6 @@ impl<'a> SmtpTransport {
         }
     }
 
-    /// Returns true if there is currently an established connection.
-    pub fn is_connected(&self) -> bool {
-        self.client.is_connected()
-    }
-
     /// Operations to perform right after the connection has been established
     async fn post_connect(&mut self) -> Result<(), Error> {
         // Log the connection
@@ -397,14 +392,6 @@ impl<'a> SmtpTransport {
 
     /// Try to connect with the configured connection type, if not already connected.
     pub async fn connect(&mut self) -> Result<(), Error> {
-        if self.is_connected() {
-            debug!(
-                "connection already established to {}",
-                self.client_info.server_addr
-            );
-            return Ok(());
-        }
-
         let tls_parameters = match self.client_info.security {
             ClientSecurity::Wrapper(ref tls_parameters) => Some(tls_parameters),
             _ => None,
