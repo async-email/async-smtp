@@ -1,6 +1,5 @@
 use async_smtp::{
-    smtp::ConnectionReuseParameters, ClientSecurity, EmailAddress, Envelope, SendableEmail,
-    ServerAddress, SmtpClient, Transport,
+    ClientSecurity, EmailAddress, Envelope, SendableEmail, ServerAddress, SmtpClient, Transport,
 };
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
@@ -45,7 +44,6 @@ fn bench_reuse_send(c: &mut Criterion) {
             ClientSecurity::None,
         )
     })
-    .connection_reuse(ConnectionReuseParameters::ReuseUnlimited)
     .into_transport();
     c.bench_function("send email with connection reuse", move |b| {
         b.iter(|| {

@@ -177,27 +177,10 @@ pub enum ConnectionType {
     Socks5(Socks5Config),
 }
 
-/// Configures connection reuse behavior
-#[derive(Clone, Debug, Copy)]
-#[cfg_attr(
-    feature = "serde-impls",
-    derive(serde_derive::Serialize, serde_derive::Deserialize)
-)]
-pub enum ConnectionReuseParameters {
-    /// Unlimited connection reuse
-    ReuseUnlimited,
-    /// Maximum number of connection reuse
-    ReuseLimited(u16),
-    /// Disable connection reuse, close connection after each transaction
-    NoReuse,
-}
-
 /// Contains client configuration
 #[derive(Debug)]
 #[allow(missing_debug_implementations)]
 pub struct SmtpClient {
-    /// Enable connection reuse
-    connection_reuse: ConnectionReuseParameters,
     /// Name sent during EHLO
     hello_name: ClientId,
     /// Credentials
@@ -237,7 +220,6 @@ impl SmtpClient {
             connection_type: ConnectionType::Direct,
             smtp_utf8: false,
             credentials: None,
-            connection_reuse: ConnectionReuseParameters::NoReuse,
             hello_name: Default::default(),
             authentication_mechanism: None,
             force_set_auth: false,
@@ -280,12 +262,6 @@ impl SmtpClient {
     /// Set the name used during EHLO
     pub fn hello_name(mut self, name: ClientId) -> SmtpClient {
         self.hello_name = name;
-        self
-    }
-
-    /// Enable connection reuse
-    pub fn connection_reuse(mut self, parameters: ConnectionReuseParameters) -> SmtpClient {
-        self.connection_reuse = parameters;
         self
     }
 
@@ -352,8 +328,6 @@ impl SmtpClient {
 struct State {
     /// Panic state
     pub panic: bool,
-    /// Connection reuse counter
-    pub connection_reuse_count: u16,
 }
 
 /// Structure that implements the high level SMTP client
@@ -396,10 +370,7 @@ impl<'a> SmtpTransport {
             client: InnerClient::new(),
             server_info: None,
             client_info: builder,
-            state: State {
-                panic: false,
-                connection_reuse_count: 0,
-            },
+            state: State { panic: false },
         }
     }
 
@@ -426,18 +397,16 @@ impl<'a> SmtpTransport {
 
     /// Try to connect with the configured connection type, if not already connected.
     pub async fn connect(&mut self) -> Result<(), Error> {
-        // Check if the connection is still available
-        if (self.state.connection_reuse_count > 0) && (!self.client.is_connected()) {
-            self.close().await?;
-        }
-
-        if self.state.connection_reuse_count > 0 {
+        if self.is_connected() {
             debug!(
                 "connection already established to {}",
                 self.client_info.server_addr
             );
             return Ok(());
         }
+
+        // Reset the state.
+        self.close().await?;
 
         let tls_parameters = match self.client_info.security {
             ClientSecurity::Wrapper(ref tls_parameters) => Some(tls_parameters),
@@ -613,7 +582,6 @@ impl<'a> SmtpTransport {
         // Reset the client state
         self.server_info = None;
         self.state.panic = false;
-        self.state.connection_reuse_count = 0;
 
         Ok(())
     }
@@ -623,22 +591,6 @@ impl<'a> SmtpTransport {
             .as_ref()
             .map(|info| info.supports_feature(keyword))
             .unwrap_or_default()
-    }
-
-    /// Called after sending out a message, to update the connection state.
-    async fn connection_was_used(&mut self) -> Result<(), Error> {
-        // Test if we can reuse the existing connection
-        match self.client_info.connection_reuse {
-            ConnectionReuseParameters::ReuseLimited(limit)
-                if self.state.connection_reuse_count >= limit =>
-            {
-                self.close().await?;
-            }
-            ConnectionReuseParameters::NoReuse => self.close().await?,
-            _ => (),
-        }
-
-        Ok(())
     }
 
     /// Try to connect and then send a message.
@@ -760,19 +712,13 @@ impl<'a> Transport<'a> for SmtpTransport {
 
         // Message content
         if let Ok(result) = &res {
-            // Increment the connection reuse counter
-            self.state.connection_reuse_count += 1;
-
             // Log the message
             debug!(
-                "{}: conn_use={}, status=sent ({})",
+                "{}: status=sent ({})",
                 message_id,
-                self.state.connection_reuse_count,
                 result.message.get(0).unwrap_or(&"no response".to_string())
             );
         }
-
-        self.connection_was_used().await?;
 
         res
     }
