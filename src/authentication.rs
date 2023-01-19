@@ -1,6 +1,6 @@
 //! Provides limited SASL authentication mechanisms
 
-use crate::smtp::error::Error;
+use crate::error::Error;
 use std::fmt::{self, Display, Formatter};
 
 /// Accepted authentication mechanisms on an encrypted connection
@@ -31,10 +31,6 @@ impl<S: Into<String>, T: Into<String>> IntoCredentials for (S, T) {
 
 /// Contains user credentials
 #[derive(PartialEq, Eq, Clone, Hash, Debug)]
-#[cfg_attr(
-    feature = "serde-impls",
-    derive(serde_derive::Serialize, serde_derive::Deserialize)
-)]
 pub struct Credentials {
     authentication_identity: String,
     secret: String,
@@ -52,20 +48,16 @@ impl Credentials {
 
 /// Represents authentication mechanisms
 #[derive(PartialEq, Eq, Copy, Clone, Hash, Debug)]
-#[cfg_attr(
-    feature = "serde-impls",
-    derive(serde_derive::Serialize, serde_derive::Deserialize)
-)]
 pub enum Mechanism {
     /// PLAIN authentication mechanism
-    /// RFC 4616: https://tools.ietf.org/html/rfc4616
+    /// RFC 4616: <https://tools.ietf.org/html/rfc4616>
     Plain,
     /// LOGIN authentication mechanism
     /// Obsolete but needed for some providers (like office365)
-    /// https://www.ietf.org/archive/id/draft-murchison-sasl-login-00.txt
+    /// <https://www.ietf.org/archive/id/draft-murchison-sasl-login-00.txt>
     Login,
     /// Non-standard XOAUTH2 mechanism
-    /// https://developers.google.com/gmail/imap/xoauth2-protocol
+    /// <https://developers.google.com/gmail/imap/xoauth2-protocol>
     Xoauth2,
 }
 

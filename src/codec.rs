@@ -7,10 +7,6 @@ use futures::io;
 
 /// The codec used for transparency
 #[derive(Default, Clone, Copy, Debug)]
-#[cfg_attr(
-    feature = "serde-impls",
-    derive(serde_derive::Serialize, serde_derive::Deserialize)
-)]
 pub struct ClientCodec {
     escape_count: u8,
 }
@@ -67,4 +63,29 @@ impl ClientCodec {
             }
         }
     }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::async_test;
+
+    async_test! { test_codec, {
+        let mut codec = ClientCodec::new();
+        let mut buf: Vec<u8> = vec![];
+
+        assert!(codec.encode(b"test\r\n", &mut buf).await.is_ok());
+        assert!(codec.encode(b".\r\n", &mut buf).await.is_ok());
+        assert!(codec.encode(b"\r\ntest", &mut buf).await.is_ok());
+        assert!(codec.encode(b"te\r\n.\r\nst", &mut buf).await.is_ok());
+        assert!(codec.encode(b"test", &mut buf).await.is_ok());
+        assert!(codec.encode(b"test.", &mut buf).await.is_ok());
+        assert!(codec.encode(b"test\n", &mut buf).await.is_ok());
+        assert!(codec.encode(b".test\n", &mut buf).await.is_ok());
+        assert!(codec.encode(b"test", &mut buf).await.is_ok());
+        assert_eq!(
+            String::from_utf8(buf).unwrap(),
+            "test\r\n..\r\n\r\ntestte\r\n..\r\nsttesttest.test\n.test\ntest"
+        );
+    }}
 }

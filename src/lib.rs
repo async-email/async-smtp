@@ -1,4 +1,16 @@
-//! Async-Smtp is an implementation of the smtp protocol in Rust.
+//! Async implementation of the SMTP protocol client in Rust.
+//!
+//! This SMTP client follows [RFC 5321](https://tools.ietf.org/html/rfc5321),
+//! and is designed to efficiently send emails from an application to a relay email server,
+//! as it relies as much as possible on the relay server for sanity and RFC compliance checks.
+//!
+//! It implements the following extensions:
+//!
+//! * 8BITMIME ([RFC 6152](https://tools.ietf.org/html/rfc6152))
+//! * AUTH ([RFC 4954](http://tools.ietf.org/html/rfc4954)) with PLAIN, LOGIN and XOAUTH2 mechanisms
+//! * STARTTLS ([RFC 2487](http://tools.ietf.org/html/rfc2487))
+//! * SMTPUTF8 ([RFC 6531](http://tools.ietf.org/html/rfc6531))
+//! * PIPELINING ([RFC 2920](<https://tools.ietf.org/html/rfc2920>))
 
 #![deny(
     missing_copy_implementations,
@@ -8,6 +20,7 @@
     unstable_features,
     unused_import_braces,
     missing_debug_implementations,
+    missing_docs,
     clippy::unwrap_used
 )]
 
@@ -17,49 +30,20 @@ compile_error!("one of 'runtime-async-std' or 'runtime-tokio' features must be e
 #[cfg(all(feature = "runtime-tokio", feature = "runtime-async-std"))]
 compile_error!("only one of 'runtime-async-std' or 'runtime-tokio' features must be enabled");
 
+pub mod authentication;
+mod codec;
+pub mod commands;
 pub mod error;
-#[cfg(feature = "file-transport")]
-pub mod file;
-#[cfg(feature = "sendmail-transport")]
-pub mod sendmail;
-#[cfg(feature = "smtp-transport")]
-pub mod smtp;
-pub mod stub;
+pub mod extension;
+pub mod response;
+mod smtp_client;
+mod stream;
 mod types;
-
+pub mod util;
+pub use crate::smtp_client::{SmtpClient, SmtpTransport};
 pub use types::*;
 
-#[cfg(feature = "file-transport")]
-pub use crate::file::FileTransport;
-#[cfg(feature = "sendmail-transport")]
-pub use crate::sendmail::SendmailTransport;
-#[cfg(feature = "smtp-transport")]
-pub use crate::smtp::client::net::ClientTlsParameters;
-#[cfg(feature = "smtp-transport")]
-pub use crate::smtp::{ClientSecurity, ServerAddress, SmtpClient, SmtpTransport};
-
-#[cfg(features = "socks5")]
-pub use crate::smtp::SmtpClient::Socks5Config;
-
-use async_trait::async_trait;
-use std::time::Duration;
-
-/// Transport method for emails
-#[async_trait]
-pub trait Transport<'a> {
-    /// Result type for the transport
-    type Result;
-
-    /// Sends the email
-    async fn send(&mut self, email: SendableEmail) -> Self::Result;
-
-    async fn send_with_timeout(
-        &mut self,
-        email: SendableEmail,
-        timeout: Option<&Duration>,
-    ) -> Self::Result;
-}
-
+#[cfg(test)]
 #[macro_export]
 macro_rules! async_test {
     ($name:ident, $block:block) => {
@@ -71,25 +55,6 @@ macro_rules! async_test {
 
         #[cfg(feature = "runtime-async-std")]
         #[async_std::test]
-        async fn $name() {
-            $block
-        }
-    };
-}
-
-#[macro_export]
-macro_rules! async_test_ignore {
-    ($name:ident, $block:block) => {
-        #[cfg(feature = "runtime-tokio")]
-        #[tokio::test]
-        #[ignore]
-        async fn $name() {
-            $block
-        }
-
-        #[cfg(feature = "runtime-async-std")]
-        #[async_std::test]
-        #[ignore]
         async fn $name() {
             $block
         }

@@ -1,9 +1,9 @@
 //! ESMTP features
 
-use crate::smtp::authentication::Mechanism;
-use crate::smtp::error::Error;
-use crate::smtp::response::Response;
-use crate::smtp::util::XText;
+use crate::authentication::Mechanism;
+use crate::error::Error;
+use crate::response::Response;
+use crate::util::XText;
 use hostname;
 use std::collections::HashSet;
 use std::fmt::{self, Display, Formatter};
@@ -19,10 +19,6 @@ const DEFAULT_DOMAIN_CLIENT_ID: &str = "localhost.localdomain";
 
 /// Client identifier, the parameter to `EHLO`
 #[derive(PartialEq, Eq, Clone, Debug)]
-#[cfg_attr(
-    feature = "serde-impls",
-    derive(serde_derive::Serialize, serde_derive::Deserialize)
-)]
 pub enum ClientId {
     /// A fully-qualified domain name
     Domain(String),
@@ -76,26 +72,22 @@ impl ClientId {
 
 /// Supported ESMTP keywords
 #[derive(PartialEq, Eq, Hash, Copy, Clone, Debug)]
-#[cfg_attr(
-    feature = "serde-impls",
-    derive(serde_derive::Serialize, serde_derive::Deserialize)
-)]
 pub enum Extension {
     /// PIPELINING keyword
     ///
-    /// RFC 2920: https://tools.ietf.org/html/rfc2920
+    /// RFC 2920: <https://tools.ietf.org/html/rfc2920>
     Pipelining,
     /// 8BITMIME keyword
     ///
-    /// RFC 6152: https://tools.ietf.org/html/rfc6152
+    /// RFC 6152: <https://tools.ietf.org/html/rfc6152>
     EightBitMime,
     /// SMTPUTF8 keyword
     ///
-    /// RFC 6531: https://tools.ietf.org/html/rfc6531
+    /// RFC 6531: <https://tools.ietf.org/html/rfc6531>
     SmtpUtfEight,
     /// STARTTLS keyword
     ///
-    /// RFC 2487: https://tools.ietf.org/html/rfc2487
+    /// RFC 2487: <https://tools.ietf.org/html/rfc2487>
     StartTls,
     /// AUTH mechanism
     Authentication(Mechanism),
@@ -115,10 +107,6 @@ impl Display for Extension {
 
 /// Contains information about an SMTP server
 #[derive(Clone, Debug, Eq, PartialEq)]
-#[cfg_attr(
-    feature = "serde-impls",
-    derive(serde_derive::Serialize, serde_derive::Deserialize)
-)]
 pub struct ServerInfo {
     /// Server name
     ///
@@ -214,10 +202,6 @@ impl ServerInfo {
 
 /// A `MAIL FROM` extension parameter
 #[derive(PartialEq, Eq, Clone, Debug)]
-#[cfg_attr(
-    feature = "serde-impls",
-    derive(serde_derive::Serialize, serde_derive::Deserialize)
-)]
 pub enum MailParameter {
     /// `BODY` parameter
     Body(MailBodyParameter),
@@ -254,10 +238,6 @@ impl Display for MailParameter {
 
 /// Values for the `BODY` parameter to `MAIL FROM`
 #[derive(PartialEq, Eq, Clone, Debug, Copy)]
-#[cfg_attr(
-    feature = "serde-impls",
-    derive(serde_derive::Serialize, serde_derive::Deserialize)
-)]
 pub enum MailBodyParameter {
     /// `7BIT`
     SevenBit,
@@ -276,10 +256,6 @@ impl Display for MailBodyParameter {
 
 /// A `RCPT TO` extension parameter
 #[derive(PartialEq, Eq, Clone, Debug)]
-#[cfg_attr(
-    feature = "serde-impls",
-    derive(serde_derive::Serialize, serde_derive::Deserialize)
-)]
 pub enum RcptParameter {
     /// Custom parameter
     Other {
@@ -309,8 +285,8 @@ impl Display for RcptParameter {
 mod test {
 
     use super::{ClientId, Extension, ServerInfo};
-    use crate::smtp::authentication::Mechanism;
-    use crate::smtp::response::{Category, Code, Detail, Response, Severity};
+    use crate::authentication::Mechanism;
+    use crate::response::{Category, Code, Detail, Response, Severity};
     use std::collections::HashSet;
 
     #[test]

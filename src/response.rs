@@ -15,14 +15,10 @@ use nom::{
     IResult,
 };
 
-use crate::smtp::error::Error;
+use crate::error::Error;
 
 /// First digit indicates severity
 #[derive(PartialEq, Eq, Copy, Clone, Debug)]
-#[cfg_attr(
-    feature = "serde-impls",
-    derive(serde_derive::Serialize, serde_derive::Deserialize)
-)]
 pub enum Severity {
     /// 2yx
     PositiveCompletion = 2,
@@ -42,10 +38,6 @@ impl Display for Severity {
 
 /// Second digit
 #[derive(PartialEq, Eq, Copy, Clone, Debug)]
-#[cfg_attr(
-    feature = "serde-impls",
-    derive(serde_derive::Serialize, serde_derive::Deserialize)
-)]
 pub enum Category {
     /// x0z
     Syntax = 0,
@@ -69,10 +61,6 @@ impl Display for Category {
 
 /// The detail digit of a response code (third digit)
 #[derive(PartialEq, Eq, Copy, Clone, Debug)]
-#[cfg_attr(
-    feature = "serde-impls",
-    derive(serde_derive::Serialize, serde_derive::Deserialize)
-)]
 pub enum Detail {
     #[allow(missing_docs)]
     Zero = 0,
@@ -104,10 +92,6 @@ impl Display for Detail {
 
 /// Represents a 3 digit SMTP response code
 #[derive(PartialEq, Eq, Copy, Clone, Debug)]
-#[cfg_attr(
-    feature = "serde-impls",
-    derive(serde_derive::Serialize, serde_derive::Deserialize)
-)]
 pub struct Code {
     /// First digit of the response code
     pub severity: Severity,
@@ -138,10 +122,6 @@ impl Code {
 ///
 /// The text message is optional, only the code is mandatory
 #[derive(PartialEq, Eq, Clone, Debug)]
-#[cfg_attr(
-    feature = "serde-impls",
-    derive(serde_derive::Serialize, serde_derive::Deserialize)
-)]
 pub struct Response {
     /// Response code
     pub code: Code,

@@ -1,7 +1,7 @@
 [package]
 
 name = "async-smtp"
-version = "0.6.0"
+version = "2.0.0"
 description = "SMTP client"
 readme = "README.md"
 homepage = "https://github.com/async-email/async-smtp"
@@ -18,25 +18,18 @@ is-it-maintained-issue-resolution = { repository = "async-email/async-smtp" }
 is-it-maintained-open-issues = { repository = "async-email/async-smtp" }
 
 [dependencies]
-log = "^0.4"
-async-trait = "0.1.17"
 pin-project = "1"
-pin-utils = "0.1.0"
-thiserror = "1.0.9"
-futures = "0.3.21"
-
-nom = { version = "^7.0", optional = true }
-bufstream = { version = "^0.1", optional = true }
-base64 = { version = "^0.13", optional = true }
-hostname = { version = "0.3.1", optional = true }
-serde = { version = "^1.0", optional = true }
-serde_json = { version = "^1.0", optional = true }
-serde_derive = { version = "^1.0", optional = true }
-fast-socks5 = { version = "^0.8", optional = true }
-
-async-std = { version = "1.11", features = ["unstable"], optional = true }
-tokio = { version = "1", features = ["fs", "rt", "time", "net"], optional = true }
+anyhow = "1"
 async-native-tls = { version = "0.4", default-features = false }
+async-std = { version = "1.11", features = ["unstable"], optional = true }
+base64 = "^0.13"
+bufstream = "^0.1"
+futures = "0.3.21"
+hostname = "0.3.1"
+log = "^0.4"
+nom = "^7.0"
+thiserror = "1"
+tokio = { version = "1", features = ["fs", "rt", "time", "net"], optional = true }
 
 
 [dev-dependencies]
@@ -46,36 +39,11 @@ criterion = "^0.3"
 async-std = { version = "1.11", features = ["unstable", "attributes"] }
 tokio = { version = "1", features = ["fs", "rt", "time", "net", "macros"] }
 
-[[bench]]
-name = "transport_smtp"
-harness = false
-
 [features]
 default = [
-  "file-transport", 
-  "smtp-transport", 
-  "sendmail-transport",
   "runtime-tokio"
 ]
 
-serde-impls = ["serde", "serde_derive"]
-file-transport = ["serde-impls", "serde_json"]
-smtp-transport = ["bufstream", "base64", "nom", "hostname"]
-sendmail-transport = []
 native-tls-vendored = ["async-native-tls/vendored"]
-socks5 = ["fast-socks5"]
 runtime-async-std = ["async-std", "async-native-tls/runtime-async-std"]
 runtime-tokio = ["tokio", "async-native-tls/runtime-tokio"]
-
-
-[[example]]
-name = "smtp"
-required-features = ["smtp-transport"]
-
-[[example]]
-name = "smtp_gmail"
-required-features = ["smtp-transport"]
-
-[[example]]
-name = "socks5"
-required-features = ["smtp-transport", "socks5"]

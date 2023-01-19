@@ -31,43 +31,23 @@ jobs:
         command:  check
         args: --all --bins --examples --tests
 
-    - name: check bench
-      uses: actions-rs/cargo@v1
-      if: matrix.rust == 'nightly'
-      with:
-        command:  check
-        args: --benches
-
     - name: tests tokio
       uses: actions-rs/cargo@v1
       with:
         command: test
-        args: --all --no-default-features --features file-transport,smtp-transport,runtime-tokio
-
-    - name: tests tokio with socks5
-      uses: actions-rs/cargo@v1
-      with:
-        command: test
-        args: --all --no-default-features --features file-transport,smtp-transport,runtime-tokio,socks5
+        args: --all --no-default-features --features runtime-tokio
 
     - name: tests async-std
       uses: actions-rs/cargo@v1
       with:
         command: test
-        args: --all --no-default-features --features file-transport,smtp-transport,runtime-async-std
+        args: --all --no-default-features --features runtime-async-std
 
   check_fmt_and_docs:
     name: Checking fmt and docs
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@master
-
-    - uses: actions-rs/toolchain@v1
-      with:
-          profile: minimal
-          toolchain: nightly
-          override: true
-          components: rustfmt
 
     - name: fmt
       run: cargo fmt --all -- --check

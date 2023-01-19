@@ -3,11 +3,9 @@
 use std::fmt::{Display, Formatter, Result as FmtResult};
 
 /// Encode a string as xtext
+///
+/// xtext is defined in <https://www.rfc-editor.org/rfc/rfc3461>
 #[derive(Debug)]
-#[cfg_attr(
-    feature = "serde-impls",
-    derive(serde_derive::Serialize, serde_derive::Deserialize)
-)]
 pub struct XText<'a>(pub &'a str);
 
 impl<'a> Display for XText<'a> {

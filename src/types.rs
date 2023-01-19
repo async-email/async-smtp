@@ -4,34 +4,29 @@ use std::pin::Pin;
 use std::str::FromStr;
 use std::task::{Context, Poll};
 
+use anyhow::{bail, Error, Result};
 #[cfg(feature = "runtime-async-std")]
-use async_std::io::{Cursor, Read, ReadExt};
+use async_std::io::{Cursor, Read};
 use futures::io;
 use pin_project::pin_project;
 #[cfg(feature = "runtime-tokio")]
 use std::io::Cursor;
 #[cfg(feature = "runtime-tokio")]
-use tokio::io::{AsyncRead as Read, AsyncReadExt};
-
-use crate::error::EmailResult;
-use crate::error::Error;
+use tokio::io::AsyncRead as Read;
 
 /// Email address
 #[derive(PartialEq, Eq, Clone, Debug)]
-#[cfg_attr(
-    feature = "serde-impls",
-    derive(serde_derive::Serialize, serde_derive::Deserialize)
-)]
 pub struct EmailAddress(String);
 
 impl EmailAddress {
-    pub fn new(address: String) -> EmailResult<EmailAddress> {
+    /// Creates new email address, checking that it does not contain invalid characters.
+    pub fn new(address: String) -> Result<EmailAddress> {
         // Do basic checks to avoid injection of control characters into SMTP protocol.  Actual
         // email validation should be done by the server.
         if address.chars().any(|c| {
             !c.is_ascii() || c.is_ascii_control() || c.is_ascii_whitespace() || c == '<' || c == '>'
         }) {
-            return Err(Error::InvalidEmailAddress);
+            bail!("invalid email address");
         }
 
         Ok(EmailAddress(address))
@@ -68,10 +63,6 @@ impl AsRef<OsStr> for EmailAddress {
 ///
 /// We only accept mailboxes, and do not support source routes (as per RFC).
 #[derive(PartialEq, Eq, Clone, Debug)]
-#[cfg_attr(
-    feature = "serde-impls",
-    derive(serde_derive::Serialize, serde_derive::Deserialize)
-)]
 pub struct Envelope {
     /// The envelope recipients' addresses
     ///
@@ -83,9 +74,9 @@ pub struct Envelope {
 
 impl Envelope {
     /// Creates a new envelope, which may fail if `to` is empty.
-    pub fn new(from: Option<EmailAddress>, to: Vec<EmailAddress>) -> EmailResult<Envelope> {
+    pub fn new(from: Option<EmailAddress>, to: Vec<EmailAddress>) -> Result<Envelope> {
         if to.is_empty() {
-            return Err(Error::MissingTo);
+            bail!("missing destination address");
         }
         Ok(Envelope {
             forward_path: to,
@@ -104,10 +95,13 @@ impl Envelope {
     }
 }
 
+/// Message buffer for sending.
 #[pin_project(project = MessageProj)]
 #[allow(missing_debug_implementations)]
 pub enum Message {
+    /// Message constructed from a reader.
     Reader(#[pin] Box<dyn Read + Send + Sync>),
+    /// Message constructed from a byte vector.
     Bytes(#[pin] Cursor<Vec<u8>>),
 }
 
@@ -158,52 +152,40 @@ impl Read for Message {
 /// Sendable email structure
 #[allow(missing_debug_implementations)]
 pub struct SendableEmail {
+    /// Email envelope.
     envelope: Envelope,
-    message_id: String,
     message: Message,
 }
 
 impl SendableEmail {
-    pub fn new<S: AsRef<str>, T: AsRef<[u8]>>(
-        envelope: Envelope,
-        message_id: S,
-        message: T,
-    ) -> SendableEmail {
+    /// Creates new email out of an envelope and a byte slice.
+    pub fn new(envelope: Envelope, message: impl Into<Vec<u8>>) -> SendableEmail {
+        let message: Vec<u8> = message.into();
         SendableEmail {
             envelope,
-            message_id: message_id.as_ref().into(),
-            message: Message::Bytes(Cursor::new(message.as_ref().to_vec())),
+            message: Message::Bytes(Cursor::new(message)),
         }
     }
 
+    /// Creates new email out of an envelope and a byte reader.
     pub fn new_with_reader(
         envelope: Envelope,
-        message_id: String,
         message: Box<dyn Read + Send + Sync>,
     ) -> SendableEmail {
         SendableEmail {
             envelope,
-            message_id,
             message: Message::Reader(message),
         }
     }
 
+    /// Returns email envelope.
     pub fn envelope(&self) -> &Envelope {
         &self.envelope
     }
 
-    pub fn message_id(&self) -> &str {
-        &self.message_id
-    }
-
+    /// Returns email message.
     pub fn message(self) -> Message {
         self.message
-    }
-
-    pub async fn message_to_string(mut self) -> Result<String, io::Error> {
-        let mut message_content = String::new();
-        self.message.read_to_string(&mut message_content).await?;
-        Ok(message_content)
     }
 }
 
