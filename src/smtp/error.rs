@@ -7,9 +7,6 @@ use std::io;
 use std::net::AddrParseError;
 use std::string::FromUtf8Error;
 
-#[cfg(feature = "socks5")]
-use fast_socks5;
-
 /// An enum of all error kinds.
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -60,10 +57,6 @@ pub enum Error {
 
     #[error("address parse error: {0}")]
     AddrParseError(#[from] AddrParseError),
-
-    #[cfg(feature = "socks5")]
-    #[error("socks5 error: {0}")]
-    Socks5Error(#[from] fast_socks5::SocksError),
 }
 
 impl From<nom::Err<nom::error::Error<&str>>> for Error {

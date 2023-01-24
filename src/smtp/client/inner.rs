@@ -23,11 +23,6 @@ use crate::smtp::commands::*;
 use crate::smtp::error::{Error, SmtpResult};
 use crate::smtp::response::parse_response;
 
-#[cfg(feature = "socks5")]
-use crate::smtp::Socks5Config;
-#[cfg(feature = "socks5")]
-use crate::ServerAddress;
-
 #[cfg(feature = "runtime-async-std")]
 use async_std::net::ToSocketAddrs;
 #[cfg(feature = "runtime-tokio")]
@@ -138,19 +133,6 @@ impl<S: Connector + Write + Read + Unpin> InnerClient<S> {
             .await
     }
 
-    #[cfg(feature = "socks5")]
-    pub async fn connect_socks5(
-        &mut self,
-        socks5: &Socks5Config,
-        addr: &ServerAddress,
-        timeout: Option<Duration>,
-        tls_parameters: Option<&ClientTlsParameters>,
-    ) -> Result<(), Error> {
-        self.connect_with_stream(
-            Connector::connect_socks5(socks5, addr, timeout, tls_parameters).await?,
-        )
-        .await
-    }
     /// Connects to a pre-defined stream
     pub async fn connect_with_stream(&mut self, stream: S) -> Result<(), Error> {
         // Connect should not be called when the client is already connected

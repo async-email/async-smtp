@@ -2,19 +2,9 @@ use std::fmt::Display;
 use std::pin::Pin;
 use std::time::Duration;
 
-#[cfg(all(feature = "runtime-async-std", feature = "socks5"))]
-use async_std::io;
-#[cfg(all(feature = "runtime-async-std", feature = "socks5"))]
-use async_std::net::TcpStream;
 use async_trait::async_trait;
-#[cfg(feature = "socks5")]
-use fast_socks5::client::{Config, Socks5Stream};
 use log::{debug, info};
 use pin_project::pin_project;
-#[cfg(all(feature = "runtime-tokio", feature = "socks5"))]
-use tokio::io;
-#[cfg(all(feature = "runtime-tokio", feature = "socks5"))]
-use tokio::net::TcpStream;
 
 use super::client::lookup_host;
 use crate::smtp::authentication::{
@@ -73,110 +63,6 @@ impl Display for ServerAddress {
     }
 }
 
-/// Struct holding the configuration for a socks5 proxy connection
-#[cfg(feature = "socks5")]
-#[derive(Default, Clone, Debug, PartialEq)]
-pub struct Socks5Config {
-    /// Hostname of the socks5 server
-    pub host: String,
-    /// Port number of the socks5 server
-    pub port: u16,
-    /// User/password authentication if needed. Can be none if no user/password is needed.
-    pub user_password: Option<(String, String)>,
-}
-
-#[cfg(feature = "socks5")]
-impl Socks5Config {
-    /// Creates a new Socks5Config from a hostname and a port number. User/Password will be set to None.
-    pub fn new(host: String, port: u16) -> Self {
-        Socks5Config {
-            host,
-            port,
-            user_password: None,
-        }
-    }
-
-    /// Creates a new Socks5Config from a hostname, a port number and user/password.
-    pub fn new_with_user_pass(host: String, port: u16, user: String, password: String) -> Self {
-        Socks5Config {
-            host,
-            port,
-            user_password: Some((user, password)),
-        }
-    }
-
-    /// Connect to a target ServerAddress with TCP through the configured socks5 server.
-    pub async fn connect(
-        &self,
-        target_addr: &ServerAddress,
-        timeout: Option<Duration>,
-    ) -> io::Result<Socks5Stream<TcpStream>> {
-        super::client::with_timeout(timeout.as_ref(), self.connect_without_timeout(target_addr))
-            .await
-    }
-
-    async fn connect_without_timeout(
-        &self,
-        target_addr: &ServerAddress,
-    ) -> io::Result<Socks5Stream<TcpStream>> {
-        let socks_server = format!("{}:{}", self.host.clone(), self.port);
-
-        let socks_stream = if let Some((user, password)) = self.user_password.as_ref() {
-            Socks5Stream::connect_with_password(
-                socks_server,
-                target_addr.host.clone(),
-                target_addr.port,
-                user.into(),
-                password.into(),
-                Config::default(),
-            )
-            .await
-        } else {
-            Socks5Stream::connect(
-                socks_server,
-                target_addr.host.clone(),
-                target_addr.port,
-                Config::default(),
-            )
-            .await
-        };
-
-        match socks_stream {
-            Ok(socks_stream) => io::Result::Ok(socks_stream),
-            Err(e) => io::Result::Err(io::Error::new(
-                std::io::ErrorKind::ConnectionRefused,
-                Error::Socks5Error(e),
-            )),
-        }
-    }
-}
-
-#[cfg(feature = "socks5")]
-impl Display for Socks5Config {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}:{} {}",
-            self.host,
-            self.port,
-            if let Some((user, _password)) = self.user_password.as_ref() {
-                format!("user: {} password: ***", user)
-            } else {
-                "".to_string()
-            }
-        )
-    }
-}
-
-#[derive(Clone, Debug)]
-#[allow(missing_copy_implementations)]
-pub enum ConnectionType {
-    Direct,
-
-    #[cfg(feature = "socks5")]
-    Socks5(Socks5Config),
-}
-
 /// Contains client configuration
 #[derive(Debug)]
 #[allow(missing_debug_implementations)]
@@ -188,7 +74,6 @@ pub struct SmtpClient {
     /// Socket we are connecting to
     server_addr: ServerAddress,
     /// TLS security configuration
-    connection_type: ConnectionType,
     security: ClientSecurity,
     /// Enable UTF8 mailboxes in envelope or headers
     smtp_utf8: bool,
@@ -219,7 +104,6 @@ impl SmtpClient {
         SmtpClient {
             server_addr,
             security,
-            connection_type: ConnectionType::Direct,
             smtp_utf8: false,
             credentials: None,
             hello_name: Default::default(),
@@ -264,19 +148,6 @@ impl SmtpClient {
     /// Set the name used during EHLO
     pub fn hello_name(mut self, name: ClientId) -> SmtpClient {
         self.hello_name = name;
-        self
-    }
-
-    /// Use a socks5 proxy server to connect through
-    #[cfg(feature = "socks5")]
-    pub fn use_socks5(mut self, socks5_config: Socks5Config) -> Self {
-        self.connection_type = ConnectionType::Socks5(socks5_config);
-        self
-    }
-
-    /// Set the ConnectionType
-    pub fn connection_type(mut self, connection_type: ConnectionType) -> Self {
-        self.connection_type = connection_type;
         self
     }
 
@@ -399,47 +270,30 @@ impl<'a> SmtpTransport {
 
         let mut client = Pin::new(&mut self.client);
 
-        match &self.client_info.connection_type {
-            ConnectionType::Direct => {
-                // Perform dns lookup if needed
-                let mut addresses = lookup_host(self.client_info.server_addr.to_string()).await?;
+        // Perform dns lookup if needed
+        let mut addresses = lookup_host(self.client_info.server_addr.to_string()).await?;
 
-                let mut last_err = None;
-                loop {
-                    if let Some(addr) = addresses.next() {
-                        if let Err(err) = client
-                            .connect(&addr, self.client_info.timeout, tls_parameters)
-                            .await
-                        {
-                            // In case of error, remember the error and see if we can resolve
-                            // another address
-                            last_err = Some(err);
-                            continue;
-                        }
-                        break;
-                    }
-
-                    // No more possible addresses, let's either return the last collected
-                    // error or generic resolution error
-                    if let Some(err) = last_err {
-                        return Err(err);
-                    }
-                    return Err(Error::Resolution);
+        let mut last_err = None;
+        loop {
+            if let Some(addr) = addresses.next() {
+                if let Err(err) = client
+                    .connect(&addr, self.client_info.timeout, tls_parameters)
+                    .await
+                {
+                    // In case of error, remember the error and see if we can resolve
+                    // another address
+                    last_err = Some(err);
+                    continue;
                 }
+                break;
             }
 
-            #[cfg(feature = "socks5")]
-            ConnectionType::Socks5(socks5) => {
-                let cloned_socks5 = socks5.clone();
-                client
-                    .connect_socks5(
-                        &cloned_socks5,
-                        &self.client_info.server_addr.clone().to_owned(),
-                        self.client_info.timeout,
-                        tls_parameters,
-                    )
-                    .await?;
+            // No more possible addresses, let's either return the last collected
+            // error or generic resolution error
+            if let Some(err) = last_err {
+                return Err(err);
             }
+            return Err(Error::Resolution);
         }
 
         client.set_timeout(self.client_info.timeout);

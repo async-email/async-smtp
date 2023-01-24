@@ -32,7 +32,6 @@ hostname = { version = "0.3.1", optional = true }
 serde = { version = "^1.0", optional = true }
 serde_json = { version = "^1.0", optional = true }
 serde_derive = { version = "^1.0", optional = true }
-fast-socks5 = { version = "^0.8", optional = true }
 
 async-std = { version = "1.11", features = ["unstable"], optional = true }
 tokio = { version = "1", features = ["fs", "rt", "time", "net"], optional = true }
@@ -63,7 +62,6 @@ file-transport = ["serde-impls", "serde_json"]
 smtp-transport = ["bufstream", "base64", "nom", "hostname"]
 sendmail-transport = []
 native-tls-vendored = ["async-native-tls/vendored"]
-socks5 = ["fast-socks5"]
 runtime-async-std = ["async-std", "async-native-tls/runtime-async-std"]
 runtime-tokio = ["tokio", "async-native-tls/runtime-tokio"]
 
@@ -75,7 +73,3 @@ required-features = ["smtp-transport"]
 [[example]]
 name = "smtp_gmail"
 required-features = ["smtp-transport"]
-
-[[example]]
-name = "socks5"
-required-features = ["smtp-transport", "socks5"]

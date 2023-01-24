@@ -38,9 +38,6 @@ pub use crate::smtp::client::net::ClientTlsParameters;
 #[cfg(feature = "smtp-transport")]
 pub use crate::smtp::{ClientSecurity, ServerAddress, SmtpClient, SmtpTransport};
 
-#[cfg(features = "socks5")]
-pub use crate::smtp::SmtpClient::Socks5Config;
-
 use async_trait::async_trait;
 use std::time::Duration;
 

@@ -10,8 +10,6 @@ use async_native_tls::{TlsConnector, TlsStream};
 #[cfg(feature = "runtime-async-std")]
 use async_std::{io::Read, io::Write, net::TcpStream};
 use async_trait::async_trait;
-#[cfg(feature = "socks5")]
-use fast_socks5::client::Socks5Stream;
 use futures::io::{self, ErrorKind};
 use pin_project::pin_project;
 #[cfg(feature = "runtime-tokio")]
@@ -22,11 +20,6 @@ use tokio::{
 
 use super::inner::with_timeout;
 use crate::smtp::client::mock::MockStream;
-
-#[cfg(feature = "socks5")]
-use crate::smtp::Socks5Config;
-#[cfg(feature = "socks5")]
-use crate::ServerAddress;
 
 /// Parameters to use for secure clients
 pub struct ClientTlsParameters {
@@ -61,10 +54,6 @@ pub enum NetworkStream {
     /// Encrypted TCP stream
     Tls(#[pin] TlsStream<TcpStream>),
     /// Socks5 stream
-    #[cfg(feature = "socks5")]
-    Socks5Stream(#[pin] Socks5Stream<TcpStream>),
-    #[cfg(feature = "socks5")]
-    TlsSocks5Stream(#[pin] TlsStream<Socks5Stream<TcpStream>>),
     /// Mock stream
     Mock(#[pin] MockStream),
 }
@@ -75,10 +64,6 @@ impl NetworkStream {
         match *self {
             NetworkStream::Tcp(ref s) => s.peer_addr(),
             NetworkStream::Tls(ref s) => s.get_ref().peer_addr(),
-            #[cfg(feature = "socks5")]
-            NetworkStream::Socks5Stream(ref s) => s.get_socket_ref().peer_addr(),
-            #[cfg(feature = "socks5")]
-            NetworkStream::TlsSocks5Stream(ref s) => s.get_ref().get_socket_ref().peer_addr(),
             NetworkStream::Mock(_) => Ok(SocketAddr::V4(SocketAddrV4::new(
                 Ipv4Addr::new(127, 0, 0, 1),
                 80,
@@ -93,12 +78,6 @@ impl NetworkStream {
         match *self {
             NetworkStream::Tcp(ref mut s) => s.shutdown().await,
             NetworkStream::Tls(ref mut s) => s.get_mut().shutdown().await,
-            #[cfg(feature = "socks5")]
-            NetworkStream::Socks5Stream(ref mut s) => s.get_socket_mut().shutdown().await,
-            #[cfg(feature = "socks5")]
-            NetworkStream::TlsSocks5Stream(ref mut s) => {
-                s.get_mut().get_socket_mut().shutdown().await
-            }
             NetworkStream::Mock(_) => Ok(()),
         }
     }
@@ -111,12 +90,6 @@ impl NetworkStream {
         match *self {
             NetworkStream::Tcp(ref s) => s.shutdown(Shutdown::Both),
             NetworkStream::Tls(ref s) => s.get_ref().shutdown(Shutdown::Both),
-            #[cfg(feature = "socks5")]
-            NetworkStream::Socks5Stream(ref s) => s.get_socket_ref().shutdown(Shutdown::Both),
-            #[cfg(feature = "socks5")]
-            NetworkStream::TlsSocks5Stream(ref s) => {
-                s.get_ref().get_socket_ref().shutdown(Shutdown::Both)
-            }
             NetworkStream::Mock(_) => Ok(()),
         }
     }
@@ -136,16 +109,6 @@ impl Read for NetworkStream {
             }
             NetworkStreamProj::Tls(s) => {
                 let _: Pin<&mut TlsStream<TcpStream>> = s;
-                s.poll_read(cx, buf)
-            }
-            #[cfg(feature = "socks5")]
-            NetworkStreamProj::Socks5Stream(s) => {
-                let _: Pin<&mut Socks5Stream<TcpStream>> = s;
-                s.poll_read(cx, buf)
-            }
-            #[cfg(feature = "socks5")]
-            NetworkStreamProj::TlsSocks5Stream(s) => {
-                let _: Pin<&mut TlsStream<Socks5Stream<TcpStream>>> = s;
                 s.poll_read(cx, buf)
             }
             NetworkStreamProj::Mock(s) => {
@@ -168,13 +131,6 @@ impl Write for NetworkStream {
                 let _: Pin<&mut TlsStream<TcpStream>> = s;
                 s.poll_write(cx, buf)
             }
-            #[cfg(feature = "socks5")]
-            NetworkStreamProj::Socks5Stream(s) => s.poll_write(cx, buf),
-            #[cfg(feature = "socks5")]
-            NetworkStreamProj::TlsSocks5Stream(s) => {
-                let _: Pin<&mut TlsStream<Socks5Stream<TcpStream>>> = s;
-                s.poll_write(cx, buf)
-            }
             NetworkStreamProj::Mock(s) => {
                 let _: Pin<&mut MockStream> = s;
                 s.poll_write(cx, buf)
@@ -192,13 +148,6 @@ impl Write for NetworkStream {
                 let _: Pin<&mut TlsStream<TcpStream>> = s;
                 s.poll_flush(cx)
             }
-            #[cfg(feature = "socks5")]
-            NetworkStreamProj::Socks5Stream(s) => s.poll_flush(cx),
-            #[cfg(feature = "socks5")]
-            NetworkStreamProj::TlsSocks5Stream(s) => {
-                let _: Pin<&mut TlsStream<Socks5Stream<TcpStream>>> = s;
-                s.poll_flush(cx)
-            }
             NetworkStreamProj::Mock(s) => {
                 let _: Pin<&mut MockStream> = s;
                 s.poll_flush(cx)
@@ -214,13 +163,6 @@ impl Write for NetworkStream {
             }
             NetworkStreamProj::Tls(s) => {
                 let _: Pin<&mut TlsStream<TcpStream>> = s;
-                s.poll_shutdown(cx)
-            }
-            #[cfg(feature = "socks5")]
-            NetworkStreamProj::Socks5Stream(s) => s.poll_shutdown(cx),
-            #[cfg(feature = "socks5")]
-            NetworkStreamProj::TlsSocks5Stream(s) => {
-                let _: Pin<&mut TlsStream<Socks5Stream<TcpStream>>> = s;
                 s.poll_shutdown(cx)
             }
             NetworkStreamProj::Mock(s) => {
@@ -247,16 +189,6 @@ impl Read for NetworkStream {
                 let _: Pin<&mut TlsStream<TcpStream>> = s;
                 s.poll_read(cx, buf)
             }
-            #[cfg(feature = "socks5")]
-            NetworkStreamProj::Socks5Stream(s) => {
-                let _: Pin<&mut Socks5Stream<TcpStream>> = s;
-                s.poll_read(cx, buf)
-            }
-            #[cfg(feature = "socks5")]
-            NetworkStreamProj::TlsSocks5Stream(s) => {
-                let _: Pin<&mut TlsStream<Socks5Stream<TcpStream>>> = s;
-                s.poll_read(cx, buf)
-            }
             NetworkStreamProj::Mock(s) => {
                 let _: Pin<&mut MockStream> = s;
                 s.poll_read(cx, buf)
@@ -277,13 +209,6 @@ impl Write for NetworkStream {
                 let _: Pin<&mut TlsStream<TcpStream>> = s;
                 s.poll_write(cx, buf)
             }
-            #[cfg(feature = "socks5")]
-            NetworkStreamProj::Socks5Stream(s) => s.poll_write(cx, buf),
-            #[cfg(feature = "socks5")]
-            NetworkStreamProj::TlsSocks5Stream(s) => {
-                let _: Pin<&mut TlsStream<Socks5Stream<TcpStream>>> = s;
-                s.poll_write(cx, buf)
-            }
             NetworkStreamProj::Mock(s) => {
                 let _: Pin<&mut MockStream> = s;
                 s.poll_write(cx, buf)
@@ -301,13 +226,6 @@ impl Write for NetworkStream {
                 let _: Pin<&mut TlsStream<TcpStream>> = s;
                 s.poll_flush(cx)
             }
-            #[cfg(feature = "socks5")]
-            NetworkStreamProj::Socks5Stream(s) => s.poll_flush(cx),
-            #[cfg(feature = "socks5")]
-            NetworkStreamProj::TlsSocks5Stream(s) => {
-                let _: Pin<&mut TlsStream<Socks5Stream<TcpStream>>> = s;
-                s.poll_flush(cx)
-            }
             NetworkStreamProj::Mock(s) => {
                 let _: Pin<&mut MockStream> = s;
                 s.poll_flush(cx)
@@ -323,13 +241,6 @@ impl Write for NetworkStream {
             }
             NetworkStreamProj::Tls(s) => {
                 let _: Pin<&mut TlsStream<TcpStream>> = s;
-                s.poll_close(cx)
-            }
-            #[cfg(feature = "socks5")]
-            NetworkStreamProj::Socks5Stream(s) => s.poll_close(cx),
-            #[cfg(feature = "socks5")]
-            NetworkStreamProj::TlsSocks5Stream(s) => {
-                let _: Pin<&mut TlsStream<Socks5Stream<TcpStream>>> = s;
                 s.poll_close(cx)
             }
             NetworkStreamProj::Mock(s) => {
@@ -350,13 +261,6 @@ pub trait Connector: Sized {
         tls_parameters: Option<&ClientTlsParameters>,
     ) -> io::Result<Self>;
 
-    #[cfg(feature = "socks5")]
-    async fn connect_socks5(
-        socks5: &Socks5Config,
-        addr: &ServerAddress,
-        timeout: Option<Duration>,
-        tls_parameters: Option<&ClientTlsParameters>,
-    ) -> io::Result<Self>;
     /// Upgrades to TLS connection
     async fn upgrade_tls(self, tls_parameters: &ClientTlsParameters) -> io::Result<Self>;
 
@@ -396,31 +300,6 @@ impl Connector for NetworkStream {
         }
     }
 
-    #[cfg(feature = "socks5")]
-    async fn connect_socks5(
-        socks5: &Socks5Config,
-        addr: &ServerAddress,
-        timeout: Option<Duration>,
-        tls_parameters: Option<&ClientTlsParameters>,
-    ) -> io::Result<NetworkStream> {
-        let socks5_stream = socks5.connect(addr, timeout).await?;
-
-        match tls_parameters {
-            Some(context) => {
-                with_timeout(timeout.as_ref(), async {
-                    context
-                        .connector
-                        .connect(&context.domain, socks5_stream)
-                        .await
-                        .map(NetworkStream::TlsSocks5Stream)
-                        .map_err(|e| io::Error::new(ErrorKind::Other, e))
-                })
-                .await
-            }
-            None => Ok(NetworkStream::Socks5Stream(socks5_stream)),
-        }
-    }
-
     async fn upgrade_tls(self, tls_parameters: &ClientTlsParameters) -> io::Result<Self> {
         match self {
             NetworkStream::Tcp(stream) => {
@@ -432,17 +311,6 @@ impl Connector for NetworkStream {
                 Ok(NetworkStream::Tls(tls_stream))
             }
             NetworkStream::Tls(_) => Ok(self),
-            #[cfg(feature = "socks5")]
-            NetworkStream::Socks5Stream(stream) => {
-                let tls_stream = tls_parameters
-                    .connector
-                    .connect(&tls_parameters.domain, stream)
-                    .await
-                    .map_err(|err| io::Error::new(ErrorKind::Other, err))?;
-                Ok(NetworkStream::TlsSocks5Stream(tls_stream))
-            }
-            #[cfg(feature = "socks5")]
-            NetworkStream::TlsSocks5Stream(_) => Ok(self),
             NetworkStream::Mock(_) => Ok(self),
         }
     }
@@ -452,10 +320,6 @@ impl Connector for NetworkStream {
         match *self {
             NetworkStream::Tcp(_) => false,
             NetworkStream::Tls(_) => true,
-            #[cfg(feature = "socks5")]
-            NetworkStream::Socks5Stream(_) => false,
-            #[cfg(feature = "socks5")]
-            NetworkStream::TlsSocks5Stream(_) => true,
             NetworkStream::Mock(_) => false,
         }
     }

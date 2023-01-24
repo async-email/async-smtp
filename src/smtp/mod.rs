@@ -22,6 +22,3 @@ mod smtp_client;
 pub mod util;
 
 pub use smtp_client::*;
-
-#[cfg(feature = "socks5")]
-pub use smtp_client::Socks5Config;
