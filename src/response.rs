@@ -232,7 +232,7 @@ pub(crate) fn parse_response(i: &str) -> IResult<&str, Response> {
     let (i, _) = complete(tag("\r\n"))(i)?;
 
     // Check that all codes are equal.
-    if !lines.iter().all(|&(ref code, _, _)| *code == last_code) {
+    if !lines.iter().all(|(code, _, _)| *code == last_code) {
         return Err(nom::Err::Failure(nom::error::Error {
             input: "",
             code: nom::error::ErrorKind::Not,

@@ -46,8 +46,8 @@ impl Display for ClientId {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match *self {
             ClientId::Domain(ref value) => f.write_str(value),
-            ClientId::Ipv4(ref value) => write!(f, "[{}]", value),
-            ClientId::Ipv6(ref value) => write!(f, "[IPv6:{}]", value),
+            ClientId::Ipv4(ref value) => write!(f, "[{value}]"),
+            ClientId::Ipv6(ref value) => write!(f, "[IPv6:{value}]"),
         }
     }
 }
@@ -100,7 +100,7 @@ impl Display for Extension {
             Extension::EightBitMime => write!(f, "8BITMIME"),
             Extension::SmtpUtfEight => write!(f, "SMTPUTF8"),
             Extension::StartTls => write!(f, "STARTTLS"),
-            Extension::Authentication(ref mechanism) => write!(f, "AUTH {}", mechanism),
+            Extension::Authentication(ref mechanism) => write!(f, "AUTH {mechanism}"),
         }
     }
 }
@@ -221,8 +221,8 @@ pub enum MailParameter {
 impl Display for MailParameter {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match *self {
-            MailParameter::Body(ref value) => write!(f, "BODY={}", value),
-            MailParameter::Size(size) => write!(f, "SIZE={}", size),
+            MailParameter::Body(ref value) => write!(f, "BODY={value}"),
+            MailParameter::Size(size) => write!(f, "SIZE={size}"),
             MailParameter::SmtpUtfEight => f.write_str("SMTPUTF8"),
             MailParameter::Other {
                 ref keyword,
