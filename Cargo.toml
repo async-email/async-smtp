@@ -20,7 +20,6 @@ is-it-maintained-open-issues = { repository = "async-email/async-smtp" }
 [dependencies]
 pin-project = "1"
 anyhow = "1"
-async-native-tls = { version = "0.4", default-features = false }
 async-std = { version = "1.11", features = ["unstable"], optional = true }
 base64 = "^0.13"
 bufstream = "^0.1"
@@ -44,6 +43,5 @@ default = [
   "runtime-tokio"
 ]
 
-native-tls-vendored = ["async-native-tls/vendored"]
-runtime-async-std = ["async-std", "async-native-tls/runtime-async-std"]
-runtime-tokio = ["tokio", "async-native-tls/runtime-tokio"]
+runtime-async-std = ["async-std"]
+runtime-tokio = ["tokio"]
