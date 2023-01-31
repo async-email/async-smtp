@@ -28,7 +28,7 @@ hostname = "0.3.1"
 log = "^0.4"
 nom = "^7.0"
 thiserror = "1"
-tokio = { version = "1", features = ["fs", "rt", "time", "net"], optional = true }
+tokio = { version = "1", features = ["time", "io-util"], optional = true }
 
 
 [dev-dependencies]
@@ -36,7 +36,7 @@ env_logger = "^0.9"
 glob = "^0.3"
 criterion = "^0.3"
 async-std = { version = "1.11", features = ["unstable", "attributes"] }
-tokio = { version = "1", features = ["fs", "rt", "time", "net", "macros"] }
+tokio = { version = "1", features = ["rt", "time", "macros"] }
 
 [features]
 default = [
