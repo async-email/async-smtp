@@ -52,25 +52,21 @@
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
 pub type Result<T> = std::result::Result<T, Error>;
 
-use async_smtp::{
-    ClientSecurity, Envelope, SendableEmail, SmtpClient, Transport,
-};
+use async_smtp::{Envelope, SendableEmail, SmtpClient, SmtpTransport};
 
 async fn smtp_transport_simple() -> Result<()> {
+    let stream = TcpStream::connect("127.0.0.1:2525").await?;
+    let client = SmtpClient::new();
+    let mut transport = SmtpTransport::new(client, stream).await?;
+
     let email = SendableEmail::new(
         Envelope::new(
             Some("user@localhost".parse().unwrap()),
             vec!["root@localhost".parse().unwrap()],
         )?,
-        "id",
         "Hello world",
     );
-
-    // Create a client
-    let mut smtp = SmtpClient::new("127.0.0.1:2525").await?.into_transport();
-
-    // Connect and send the email.
-    smtp.send(email).await?;
+    transport.send(email).await?;
 
     Ok(())
 }
