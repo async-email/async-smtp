@@ -25,6 +25,8 @@ pub struct SmtpClient {
     /// Normally the server sends a greeting after connection,
     /// but not after STARTTLS.
     expect_greeting: bool,
+    /// Use pipelining if the server supports it
+    pipelining: bool,
 }
 
 impl Default for SmtpClient {
@@ -48,6 +50,7 @@ impl SmtpClient {
             smtp_utf8: false,
             hello_name: Default::default(),
             expect_greeting: true,
+            pipelining: true,
         }
     }
 
@@ -55,6 +58,14 @@ impl SmtpClient {
     pub fn smtp_utf8(self, enabled: bool) -> SmtpClient {
         Self {
             smtp_utf8: enabled,
+            ..self
+        }
+    }
+
+    /// Enable PIPELINING if the server supports it
+    pub fn pipelining(self, enabled: bool) -> SmtpClient {
+        Self {
+            pipelining: enabled,
             ..self
         }
     }
@@ -196,7 +207,8 @@ impl<S: Read + Write + Unpin> SmtpTransport<S> {
             mail_options.push(MailParameter::SmtpUtfEight);
         }
 
-        let pipelining = self.supports_feature(Extension::Pipelining);
+        let pipelining =
+            self.supports_feature(Extension::Pipelining) && self.client_info.pipelining;
 
         if pipelining {
             self.stream
