@@ -13,30 +13,26 @@ use crate::response::parse_response;
 use async_std::io::{prelude::*, BufReader, Read, ReadExt, Write, WriteExt};
 #[cfg(feature = "runtime-tokio")]
 use tokio::io::{
-    AsyncBufReadExt, AsyncRead as Read, AsyncReadExt, AsyncWrite as Write, AsyncWriteExt, BufReader,
+    AsyncBufRead as BufRead, AsyncBufReadExt, AsyncRead as Read, AsyncReadExt, AsyncWrite as Write,
+    AsyncWriteExt, BufReader,
 };
 
 /// SMTP stream.
 #[derive(Debug)]
-pub struct SmtpStream<S: Read + Write + Unpin> {
+pub struct SmtpStream<S: BufRead + Write + Unpin> {
     /// Inner stream.
-    inner: BufReader<S>,
+    inner: S,
 }
 
-impl<S: Read + Write + Unpin> SmtpStream<S> {
+impl<S: BufRead + Write + Unpin> SmtpStream<S> {
     /// Creates new SMTP stream.
     pub fn new(stream: S) -> Self {
-        Self {
-            inner: BufReader::new(stream),
-        }
+        Self { inner: stream }
     }
 
     /// Returns inner stream.
-    ///
-    /// Should only be used when there are no unread responses,
-    /// because the buffer of `BufReader` may be lost.
     pub fn into_inner(self) -> S {
-        self.inner.into_inner()
+        self.inner
     }
 
     /// Sends EHLO command and returns server response.
@@ -60,8 +56,8 @@ impl<S: Read + Write + Unpin> SmtpStream<S> {
 
     /// Writes the given data to the server.
     async fn write(&mut self, string: &[u8]) -> Result<(), Error> {
-        self.inner.get_mut().write_all(string).await?;
-        self.inner.get_mut().flush().await?;
+        self.inner.write_all(string).await?;
+        self.inner.flush().await?;
 
         debug!(
             ">> {}",
@@ -112,9 +108,9 @@ impl<S: Read + Write + Unpin> SmtpStream<S> {
         message_reader.read_to_end(&mut message_bytes).await?;
 
         let res: Result<(), Error> = async {
-            codec.encode(&message_bytes, self.inner.get_mut()).await?;
-            self.inner.get_mut().write_all(b"\r\n.\r\n").await?;
-            self.inner.get_mut().flush().await?;
+            codec.encode(&message_bytes, &mut self.inner).await?;
+            self.inner.write_all(b"\r\n.\r\n").await?;
+            self.inner.flush().await?;
             Ok(())
         }
         .await;

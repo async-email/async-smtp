@@ -10,9 +10,9 @@ use crate::stream::SmtpStream;
 use crate::SendableEmail;
 
 #[cfg(feature = "runtime-async-std")]
-use async_std::io::{Read, Write};
+use async_std::io::{BufRead, Write};
 #[cfg(feature = "runtime-tokio")]
-use tokio::io::{AsyncRead as Read, AsyncWrite as Write};
+use tokio::io::{AsyncBufRead as BufRead, AsyncWrite as Write};
 
 /// Contains client configuration
 #[derive(Debug)]
@@ -91,7 +91,7 @@ impl SmtpClient {
 
 /// Structure that implements the high level SMTP client
 #[derive(Debug)]
-pub struct SmtpTransport<S: Read + Write + Unpin> {
+pub struct SmtpTransport<S: BufRead + Write + Unpin> {
     /// Information about the server
     server_info: ServerInfo,
     /// Information about the client
@@ -100,7 +100,7 @@ pub struct SmtpTransport<S: Read + Write + Unpin> {
     stream: SmtpStream<S>,
 }
 
-impl<S: Read + Write + Unpin> SmtpTransport<S> {
+impl<S: BufRead + Write + Unpin> SmtpTransport<S> {
     /// Creates a new SMTP transport and connects.
     pub async fn new(builder: SmtpClient, stream: S) -> Result<Self, Error> {
         let mut stream = SmtpStream::new(stream);

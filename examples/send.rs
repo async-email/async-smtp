@@ -1,3 +1,4 @@
+use tokio::io::BufStream;
 use tokio::net::TcpStream;
 
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
@@ -7,7 +8,7 @@ use async_smtp::{Envelope, SendableEmail, SmtpClient, SmtpTransport};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let stream = TcpStream::connect("127.0.0.1:2525").await?;
+    let stream = BufStream::new(TcpStream::connect("127.0.0.1:2525").await?);
     let client = SmtpClient::new();
     let mut transport = SmtpTransport::new(client, stream).await?;
 
